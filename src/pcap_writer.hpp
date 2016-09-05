@@ -32,13 +32,13 @@ static_assert(sizeof(pcap_packet_header) == 16, "");
 static_assert(sizeof(pcap_file_header) == 24, "");
 
 
-uint8_t* write_pcap_header(uint8_t* memory) noexcept {
+static uint8_t* write_pcap_header(uint8_t* memory) noexcept {
     reinterpret_cast<pcap_file_header*>(memory)->magic = 0xa1b2c3d4;
     reinterpret_cast<pcap_file_header*>(memory)->version_major = 2;
     reinterpret_cast<pcap_file_header*>(memory)->version_minor = 4;
     reinterpret_cast<pcap_file_header*>(memory)->thiszone = 0;
     reinterpret_cast<pcap_file_header*>(memory)->sigfigs = 0;
-    reinterpret_cast<pcap_file_header*>(memory)->snaplen = UINT32_MAX;
+    reinterpret_cast<pcap_file_header*>(memory)->snaplen = INT32_MAX;
     reinterpret_cast<pcap_file_header*>(memory)->linktype = 1;
 
     return memory + sizeof(pcap_file_header);
@@ -61,7 +61,6 @@ public:
         allocated_size = size_hint;
         if (::fallocate(fd, 0, 0, allocated_size))
             handle_error("fallocate");
-        //void* ptr = ::mmap(NULL, allocated_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		void* ptr = ::mmap(NULL, allocated_size, PROT_WRITE, MAP_SHARED | MAP_NORESERVE, fd, 0);
         if (ptr == MAP_FAILED)
             handle_error("mmap");
@@ -80,9 +79,6 @@ public:
         if (::close(fd))
             handle_error("close");
         fd = -1;
-        if (::msync(backend, allocated_size, MS_SYNC))
-		//if (::msync(backend, allocated_size, MS_ASYNC))
-            handle_error("msync");
         if (::munmap(backend, allocated_size))
             handle_error("munmap");
         backend = nullptr;
@@ -94,15 +90,14 @@ public:
 #ifndef NDEBUG
         std::cout << "[pcap] resizing from " << allocated_size << " to " << new_size << std::endl;
 #endif
-        // TODO: investigate if syncing (writing out to HDD) early helps or hinders performance
-        if (::msync(backend, allocated_size, MS_SYNC))
-            handle_error("msync");
+        //if (::msync(backend, allocated_size, MS_ASYNC))
+        //    handle_error("msync");
         if (::fallocate(fd, 0, 0, new_size))
             handle_error("fallocate");
         void* ptr = ::mremap(backend, allocated_size, new_size, MREMAP_MAYMOVE);
         if (ptr == MAP_FAILED)
             handle_error("mremap");
-        auto distance = cursor - backend; //!< backup cursor because of mremap's MAYMOVE. Mitigation: make cursor relative to backend, not absolute
+        auto distance = cursor - backend; //!< backup cursor because of mremap's MAYMOVE.
         backend = (uint8_t*) ptr;
         cursor = backend + distance; //!< restore original cursor offset
         allocated_size = new_size;
@@ -110,7 +105,7 @@ public:
 
     inline void store(const uint64_t timestamp, const uint32_t len, const uint8_t* data) noexcept {
         if ((cursor - backend) + sizeof(pcap_packet_header) + len >= allocated_size) {
-            resize(allocated_size * 2); //!< double size, something something O(log(n))
+            resize(allocated_size * 2); //!< double size
         }
 
         reinterpret_cast<pcap_packet_header*>(cursor)->ts_sec = (uint32_t) timestamp / 1000000; // FIXME: find correct conversion
@@ -121,21 +116,12 @@ public:
 
         memcpy(cursor, data, len);
         cursor += len;
-		
-		/*
-		if ((cursor - backend) - old_diff > 1024LL * 1024LL * 32LL) {
-			std::cout << ".";
-			if (::msync(backend, allocated_size, MS_SYNC))
-				handle_error("msync");
-			old_diff = cursor - backend;
-		}
-		*/
     }
 
 private:
     uint8_t* backend;
     uint8_t* cursor;
-    size_t old_diff = 0;
     int fd;
     size_t allocated_size;
 };
+

@@ -1,5 +1,6 @@
-local ffi    = require "ffi"
-local memory = require "memory"
+local ffi       = require "ffi"
+local packetLib = require "packet"
+local memory    = require "memory"
 
 local qqlib = ffi.load("build/flowscope")
 
@@ -25,6 +26,8 @@ ffi.cdef [[
 	typedef struct { } storage_t;
     
 	storage_t* qq_storage_dequeue(qq_t*);
+
+	storage_t* qq_storage_try_dequeue(qq_t*);
     
 	storage_t* qq_storage_enqueue(qq_t*);
 	
@@ -61,7 +64,7 @@ local C = ffi.C
 
 local mod = {}
 
-function mod.create_qq()
+function mod.createQQ()
 	qqlib.qq_init() -- idempotent
 	return qqlib.qq_create()
 end
@@ -70,8 +73,8 @@ local qq = {}
 qq.__index = qq
 local storage = {}
 storage.__index = storage
-local packet_header = {}
-packet_header.__index = packet_header
+local packetHeader = {}
+packetHeader.__index = packetHeader
 
 
 function qq:delete()
@@ -79,7 +82,7 @@ function qq:delete()
 end
 
 function qq:size()
-	return qqlib.qq_size(self)
+	return tonumber(qqlib.qq_size(self))
 end
 
 function qq:capacity()
@@ -88,6 +91,10 @@ end
 
 function qq:dequeue()
 	return qqlib.qq_storage_dequeue(self)
+end
+
+function qq:tryDequeue()
+	return qqlib.qq_storage_try_dequeue(self)
 end
 
 function qq:enqueue()
@@ -119,7 +126,7 @@ function storage:release()
 end
 
 function storage:size()
-	return qqlib.qq_storage_size(self)
+	return tonumber(qqlib.qq_storage_size(self))
 end
 
 function storage:store(ts, vlan, len, data)
@@ -132,29 +139,41 @@ end
 
 local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
 
-function packet_header:getTimestamp()
-	return band(self.ts_vlan, 0xffffffffffff)
+function packetHeader:getTimestamp()
+	return tonumber(band(self.ts_vlan, 0xffffffffffff))
 end
 
-function packet_header:getVlan()
+function packetHeader:getVlan()
 	return rshift(self.ts_vlan, 48)
 end
 
-function packet_header:getLength()
+function packetHeader:getLength()
 	return self.len
 end
 
-function packet_header:getData()
+function packetHeader:getData()
 	return ffi.cast("void*", self.data)
 end
 
-function qq:inserterLoop(port_id, queue_id)
-	qqlib.qq_inserter_loop(port_id, queue_id, self)
+function packetHeader:dump()
+    return packetLib.getEthernetPacket(self):resolveLastHeader():dump()
+end
+
+function packetHeader:clone()
+	local pkt = memory.alloc("packet_header_t*", ffi.sizeof("packet_header_t") + self.len)
+	pkt.ts_vlan = self.ts_vlan
+	pkt.len = self.len
+	ffi.copy(pkt.data, self.data, self.len)
+	return pkt
+end
+
+function qq:inserterLoop(queue)
+	qqlib.qq_inserter_loop(queue.id, queue.qid, self)
 end
 
 ffi.metatype("qq_t", qq)
 ffi.metatype("storage_t", storage)
-ffi.metatype("packet_header_t", packet_header)
+ffi.metatype("packet_header_t", packetHeader)
 
 return mod
 

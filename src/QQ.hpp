@@ -283,6 +283,8 @@ namespace QQ {
                     handle_error("mmap");
                 if (madvise(bytes, storage_size * huge_page_size, MADV_HUGEPAGE))
                     handle_error("madvise");
+				if (mlock(bytes, storage_size * huge_page_size))
+					handle_error("mlock");
                 auto packet_data = new uint8_t[packet_len];
 
 
@@ -677,6 +679,20 @@ namespace QQ {
             return std::move(p);
         }
 
+        Ptr<pages_per_bucket>* try_dequeue(const uint8_t call_priority = 1) {
+            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
+            std::unique_lock<std::mutex> lk(mutex_);
+            if (!non_empty.wait_for(lk, std::chrono::milliseconds(10), [&] { return distance(tail, head) > 8; }))
+				return nullptr;
+			s = storage_in_use.at(tail);
+            tail = wrap(tail + 1);
+            ++dequeue_call_counter;
+            Ptr<pages_per_bucket> p{*s};
+            lk.unlock();
+            not_full.notify_one();
+            return new Ptr<pages_per_bucket>(std::move(p));
+        }
+
         Ptr<pages_per_bucket> dequeue(const uint8_t call_priority = 1) {
 			//usleep(100);
 			//while (distance(tail, head) < 1) continue;
@@ -783,16 +799,6 @@ namespace QQ {
             Ptr<pages_per_bucket> p{*s};
 			lk.unlock();
 			return p;
-        }
-
-        /*!
-         * Dumps packets to pcap file. Should/must be run in extra thread.
-         * TODO: fix
-         * @param back      The percentage of the currently stored packets to dump.
-         * @param forward   The amount of future packets to dump. As fraction of total queue capacity.
-         */
-        void dump(const double back = 0.7, const double forward = 0.1) {
-
         }
 
         inline bool empty() {

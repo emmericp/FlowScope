@@ -111,6 +111,10 @@ extern "C" {
 		auto c = new QQ::Ptr<bucket_size>(std::move(q->dequeue()));
         return c;
     }
+
+    const QQ::Ptr<bucket_size>* qq_storage_try_dequeue(QQ::QQ<bucket_size, num_buckets>* q) {
+        return q->try_dequeue();
+    }
     
     const QQ::Ptr<bucket_size>* qq_storage_enqueue(QQ::QQ<bucket_size, num_buckets>* q) {
         auto c = new QQ::Ptr<bucket_size>(std::move(q->enqueue()));
@@ -209,3 +213,4 @@ extern "C" {
 	}
 	
 }
+

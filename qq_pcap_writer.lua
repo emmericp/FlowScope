@@ -10,25 +10,25 @@ ffi.cdef [[
 
 local qqlib = ffi.load("build/flowscope")
 
-local module = {}
+local mod = {}
 
-function module.create_pcap_writer(path)
+function mod.newWriter(path)
 	return qqlib.pcap_writer_create(path)
 end
 
-local pcap_writer = {}
-pcap_writer.__index = pcap_writer
+local pcapWriter = {}
+pcapWriter.__index = pcapWriter
 
 
-function pcap_writer:delete()
+function pcapWriter:close()
 	qqlib.pcap_writer_delete(self)
 end
 
-function pcap_writer:store(timestamp, length, data)
+function pcapWriter:store(timestamp, length, data)
 	qqlib.pcap_writer_store(self, timestamp, length, data)
 end
 
 
-ffi.metatype("pcap_writer_t", pcap_writer)
+ffi.metatype("pcap_writer_t", pcapWriter)
 
-return module
+return mod
