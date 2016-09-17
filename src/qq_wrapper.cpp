@@ -5,7 +5,6 @@
 #include <rte_cycles.h>
 
 #include "QQ.hpp"
-#include "pcap_writer.hpp"
 #include "lifecycle.hpp"
 
 constexpr size_t wanted_cap_in_GiB 	= 8;	// total raw capacity, real memory usage will be a bit higher
@@ -194,23 +193,5 @@ extern "C" {
         return q->capacity();
     }
     
-    
-	
-    // #### pcap_writer ####
-    pcap_writer* pcap_writer_create(const char* path) {
-		if (!path)
-			return new pcap_writer();
-		else
-			return new pcap_writer(path);
-	}
-    
-    void pcap_writer_delete(pcap_writer* pcw) {
-		delete pcw;
-	}
-    
-    void pcap_writer_store(pcap_writer* pcw, const uint64_t timestamp, const uint32_t len, const uint8_t* data) {
-		pcw->store(timestamp, len, data);
-	}
-	
 }
 
