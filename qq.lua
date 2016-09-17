@@ -2,7 +2,7 @@ local ffi       = require "ffi"
 local packetLib = require "packet"
 local memory    = require "memory"
 
-local qqlib = ffi.load("build/flowscope")
+local qqlib = ffi.load("build/qq")
 
 ffi.cdef [[
 	typedef struct packet_header {

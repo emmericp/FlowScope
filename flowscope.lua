@@ -4,9 +4,9 @@ local stats  = require "stats"
 local pktLib = require "packet"
 local ns     = require "namespaces"
 local log    = require "log"
+local pcap   = require "pcap"
 
 local qq          = require "qq"
-local pcapLib     = require "qq_pcap_writer"
 
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
@@ -97,7 +97,7 @@ function dumper(qq, path)
 			return
 		end
 
-		local pcapWriter = pcapLib.newWriter(path)
+		local pcapWriter = pcap:newWriter(path .. "/FlowScope-dump-" .. os.date("%Y-%m-%d %H:%M:%S", triggered) .. ".pcap")
 		while phobos.running() do
 			local storage = qq:tryDequeue()
 			if storage ~= nil then
@@ -109,7 +109,7 @@ function dumper(qq, path)
 					if udpPkt.ip4:getSrc() == triggerUdpPkt.ip4:getSrc() then
 						local ts = pkt:getTimestamp()
 						print(ts - triggered)
-						pcapWriter:store(pkt:getTimestamp(), pkt.len, pkt.data)
+						pcapWriter:write(pkt:getTimestamp(), pkt.data, pkt.len)
 					end
 				end
 		
