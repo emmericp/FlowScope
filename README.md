@@ -18,3 +18,9 @@ to set the compiler if gcc 5 is not your default.
 Usage
 =====
 
+Hardware Requirements
+=====
+
+1. A NIC supported by DPDK
+2. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) require this.
+
