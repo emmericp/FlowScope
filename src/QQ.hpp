@@ -603,48 +603,6 @@ namespace QQ {
             //return p;
         }
 
-        // TODO: handle case where an enqueue call will wrap over tail, maybe move tail along
-        Ptr<pages_per_bucket> enqueue2(const uint8_t call_priority = 1) {
-            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
-            {
-                std::unique_lock<std::mutex> lk(mutex_);
-                // If we would move tail later on, we wait until we're allowed to.
-                if (full_no_lock())
-                    cv_prio.wait(lk,
-                                 [&] { return check_priority_no_lock(call_priority); }); // wait until true/while false
-
-                s = storage_in_use.at(head);
-                head = wrap(head + 1);
-
-                ++enqueue_call_counter;
-
-                if (head == tail) {
-                    ++enqueue_overflow_counter;
-                    /* At this point tail should probably be moved to warp(head+1), so that the next dequeue() call
-                     * gets the oldest still available data and not the newest, skipping in the timeline.
-                     *
-                     * before call:
-                     *           h   t
-                     * [ 0 | 1 | 2 | 3 | 4 ]
-                     *
-                     * after call (now):
-                     *              h,t
-                     * [ 0 | 1 | 2 | 3 | 4 ]
-                     *
-                     * after call (how it should be):
-                     *               h   t
-                     * [ 0 | 1 | 2 | 3 | 4 ]
-                     */
-#ifndef NDEBUG
-                    std::cerr << "[QQ]: Enqueue overflow occurred!" << std::endl;
-#endif
-                }
-            }
-            non_empty.notify_one();
-            Ptr<pages_per_bucket> p{*s};
-            p.clear();
-            return p;
-        }
 
         Ptr<pages_per_bucket> enqueue(const uint8_t call_priority = 1) {
 			//std::cout << "c++ enqueue: entry" << std::endl;
@@ -722,56 +680,6 @@ namespace QQ {
             // #2
             //
             return p;
-        }
-
-
-        Ptr<pages_per_bucket> dequeue2(const uint8_t call_priority = 1) {
-            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
-            //{
-                std::unique_lock<std::mutex> lk(mutex_);
-                //cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); }); // wait until true/while false
-
-
-                while (empty_no_lock()) {
-#ifndef NDEBUG
-                    std::cout << "dequeue(" << (uint32_t) call_priority << "): empty == true, head: " << head
-                    << ", tail: " << tail << std::endl;
-#endif
-                    non_empty.wait(lk);
-                }
-                //non_empty.wait(lk, [&] { return !empty_no_lock(); });
-#ifndef NDEBUG
-                if (!lk.owns_lock()) {
-                    std::cerr << "Lock not owned" << std::endl;
-                    std::exit(2);
-                }
-#endif
-
-                s = storage_in_use.at(tail);
-#ifndef NDEBUG
-                std::cout << "dequeue(" << (uint32_t) call_priority << "): tail " << tail << " -> " << wrap(tail+1) << std::endl;
-#endif
-
-#ifndef NDEBUG
-                if (tail == head) {
-                    std::cerr << "Dequeuing from empty queue" << std::endl;
-                    std::exit(2);
-                }
-#endif
-
-                tail = wrap(tail + 1);
-
-                ++dequeue_call_counter;
-
-                Ptr<pages_per_bucket> p{*s};
-                lk.unlock();
-                not_full.notify_one();
-                return p;
-            //}
-
-            //not_full.notify_all();
-            //non_empty.notify_one();
-            //return Ptr<pages_per_bucket>{*s};
         }
 
         // TODO: revisit peek
