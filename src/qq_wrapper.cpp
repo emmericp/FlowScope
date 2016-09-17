@@ -18,9 +18,6 @@ namespace QQ {
 		const static uint64_t tsc_hz = rte_get_tsc_hz();			//!< cycles per second
 		const static uint64_t tsc_hz_usec = tsc_hz / (1000 * 1000);	//!< cycles per microsecond
 		
-		
-		//std::cout << "Port: " << (int) port_id << ", queue_id:" << queue_id << std::endl;
-		
 		auto enq_ptr = qq->enqueue();
 		struct rte_mbuf* bufs[batchsize] __rte_cache_aligned;
 		
@@ -29,56 +26,27 @@ namespace QQ {
 		uint64_t last_ts = 0;
 		
 		while (phobos::is_running(0)) {
-			//uint64_t ts_0 = _rdtsc();
 			uint16_t rx_cnt = rte_eth_rx_burst(port_id, queue_id, bufs, batchsize);
-			//uint64_t ts_1 = _rdtsc();
 			
 			if (rx_cnt == 0) {
-				//std::cout << ".";
-				//std::cout << "[" << queue_id << "]";
-				rte_delay_us(5); // taken from dpdk example bond/main
+				rte_delay_us(2); // taken from dpdk example bond/main
 			}
-			
-			//std::cout << (ts_1 - ts_0)/rx_cnt << std::endl;
 			
 			uint64_t timestamp_batch = _rdtsc() / tsc_hz_usec;
 			
-			/*
-			if (ctx % (1ULL<<21) == 0) {
-				const uint64_t timestamp = _rdtsc();
-				const double diff = (timestamp - last_ts) / static_cast<double>(tsc_hz);
-				std::cout << std::fixed << (ctx - last_ctx) / diff << std::endl;
-				//std::cout << rx_cnt / ((timestamp_batch - last_ts) / tsc_hz) << std::endl;
-				last_ts = timestamp;
-				last_ctx = ctx;
-			}
-			ctx += rx_cnt;
-			*/
-			
-			//uint64_t ts_0 = _rdtsc();
 			for (uint64_t i = 0; i < rx_cnt; ++i) {
-				
-				try_again:
-				//std::cout << "["<< rte_ctrlmbuf_len(bufs[i]) << "] ";
-				const bool success = enq_ptr.store(
-					timestamp_batch,			// timestamp
+				while (!enq_ptr.store(
+					timestamp_batch,
 					// vlan
 					bufs[i]->ol_flags & PKT_RX_VLAN_PKT ? bufs[i]->vlan_tci & 0xFFF : 0,
-					rte_pktmbuf_pkt_len(bufs[i]),	// packet length
+					rte_pktmbuf_pkt_len(bufs[i]),              // packet length
 					rte_pktmbuf_mtod(bufs[i], const uint8_t*)  // packet data
-				);
-				if (!success) {						// The storage is full or held for too long
-					//std::cout << "storage full" << std::endl;
+				)) {
 					enq_ptr.release();				// Unlock the old one
 					enq_ptr = qq->enqueue(); 		// Get a new one
-					//std::cout << "got new one" << std::endl;
-					goto try_again; 				// Try to store this packet again
 				}
-				
 				rte_pktmbuf_free(bufs[i]);
 			}
-			//uint64_t ts_1 = _rdtsc();
-			//std::cout << (ts_1 - ts_0)/rx_cnt << std::endl;
 		}
 	}
 }
@@ -121,15 +89,12 @@ extern "C" {
     }
     
     void qq_storage_release(QQ::Ptr<bucket_size>* ptr) {
-		//std::cout << "release()" << std::endl;
-		delete ptr;  // c++ calls the dtor implicitly, which unlocks the storage mutex
+		delete ptr; // dtor unlocks the storage mutex
     }
     
     size_t qq_storage_size(QQ::Ptr<bucket_size>* ptr) {
-        //std::cout << "storage size: " << ptr->size() << std::endl;
         return ptr->size();
     }
-    
     
     size_t qq_get_enqueue_counter(QQ::QQ<bucket_size, num_buckets>* q) {
 		return q->get_enqueue_counter();
@@ -144,7 +109,6 @@ extern "C" {
 	}
     
     const QQ::packet_header& qq_storage_get_packet(QQ::Ptr<bucket_size>* ptr, const size_t idx) {
-        //std::cout << "get_packet(" << idx << "): " << ptr->operator[](idx) << std::endl;
         return (const QQ::packet_header&) *ptr->operator[](idx);
     }
     
@@ -159,7 +123,6 @@ extern "C" {
     void dummy_enqueue(QQ::QQ<bucket_size, num_buckets>* q) {
         auto ptr = q->enqueue();
         uint8_t data[64] = {55};
-        //
         memset(data, 55, 64);
         ptr.store(123456789, 4095, 64, data);
     }
@@ -180,14 +143,11 @@ extern "C" {
     const uint8_t* qq_packet_header_get_data(QQ::packet_header* h) {
         return h->data;
     }
-    
-    
-    // ############
-    
+ 	
+	// implemented in C++ for better timestamp precision
     void qq_inserter_loop(uint8_t device, uint16_t queue_id, QQ::QQ<bucket_size, num_buckets>* qq) {
         QQ::inserter_loop(device, queue_id, qq);
     }
-    
     
 	size_t qq_capacity(const QQ::QQ<bucket_size, num_buckets>* q) noexcept {
         return q->capacity();
