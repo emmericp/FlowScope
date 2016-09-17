@@ -15,15 +15,11 @@ namespace QQ {
 	static inline void inserter_loop(uint8_t port_id, uint16_t queue_id, QQ<bucket_size, num_buckets>* qq) {
 		constexpr size_t batchsize = 64;
 		
-		const static uint64_t tsc_hz = rte_get_tsc_hz();			//!< cycles per second
-		const static uint64_t tsc_hz_usec = tsc_hz / (1000 * 1000);	//!< cycles per microsecond
+		const uint64_t tsc_hz = rte_get_tsc_hz();              //!< cycles per second
+		const double tsc_hz_usec = tsc_hz / (1000.0 * 1000.0); //!< cycles per microsecond
 		
 		auto enq_ptr = qq->enqueue();
 		struct rte_mbuf* bufs[batchsize] __rte_cache_aligned;
-		
-		uint64_t ctx = 0;
-		uint64_t last_ctx = 0;
-		uint64_t last_ts = 0;
 		
 		while (phobos::is_running(0)) {
 			uint16_t rx_cnt = rte_eth_rx_burst(port_id, queue_id, bufs, batchsize);
@@ -32,9 +28,11 @@ namespace QQ {
 				rte_delay_us(2); // taken from dpdk example bond/main
 			}
 			
-			uint64_t timestamp_batch = _rdtsc() / tsc_hz_usec;
+			// we need the floating point op, tsc / (tsc_hz / 10^6) is too imprecise
+			// (and tsc * 10^6 overflows after a few hours)
+			uint64_t timestamp_batch = (uint64_t) (rte_rdtsc() / tsc_hz_usec);
 			
-			for (uint64_t i = 0; i < rx_cnt; ++i) {
+			for (uint16_t i = 0; i < rx_cnt; ++i) {
 				while (!enq_ptr.store(
 					timestamp_batch,
 					// vlan

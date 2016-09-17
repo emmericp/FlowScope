@@ -140,7 +140,8 @@ end
 local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
 
 function packetHeader:getTimestamp()
-	return tonumber(band(self.ts_vlan, 0xffffffffffff))
+	-- timestamp relative to phobos.getTime(), i.e. the TSC in seconds
+	return tonumber(band(self.ts_vlan, 0xffffffffffffULL)) / 10^6
 end
 
 function packetHeader:getVlan()

@@ -12,7 +12,7 @@ function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
 	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default(1):target("rxThreads")
 	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default(1):target("analyzeThreads")
-	parser:option("--path", "Path for output pcap."):default(".")
+	parser:option("--path", "Path for output pcaps."):default(".")
 end
 
 local trigger = ns.get()
@@ -42,8 +42,8 @@ function master(args)
 end
 
 function inserter(rxQueue, qq)
+	-- the inserter is C++ in libqq to get microsecond-level software timestamping precision
 	qq:inserterLoop(rxQueue)
-	print("inserter stopped")
 end
 
 local function handleTrigger(pkt)
@@ -52,12 +52,10 @@ local function handleTrigger(pkt)
 			-- only one concurrent dumper at the moment
 			return
 		end
-		log:info("found trigger packet")
+		log:info("Found trigger packet, notifying dumper thread.")
 		pkt:dump()
-		print(pkt)
 		trigger.pkt = pkt:clone()
 		trigger.triggered = pkt:getTimestamp()
-		print(trigger.pkt, trigger.triggered)
 	end)
 end
 
@@ -96,8 +94,13 @@ function dumper(qq, path)
 		if not phobos.running() then
 			return
 		end
-
-		local pcapWriter = pcap:newWriter(path .. "/FlowScope-dump-" .. os.date("%Y-%m-%d %H:%M:%S", triggered) .. ".pcap")
+		-- we currently only sync once to systime at the trigger point
+		-- this clock will drift slightly for longer captures
+		-- (no, NUMA is not a problem, TSC is synced across CPUs since they share the same reference clock and reset)
+		local triggerWallTime = wallTime() - (phobos.getTime() - triggered)
+		local pcapFileName = path .. "/FlowScope-dump-" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. ".pcap"
+		local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime - triggered)
+		log:info("Dumper starting to write %s", pcapFileName)
 		while phobos.running() do
 			local storage = qq:tryDequeue()
 			if storage ~= nil then
@@ -108,7 +111,7 @@ function dumper(qq, path)
 				
 					if udpPkt.ip4:getSrc() == triggerUdpPkt.ip4:getSrc() then
 						local ts = pkt:getTimestamp()
-						print(ts - triggered)
+						print(phobos.getTime(), ts - triggered)
 						pcapWriter:write(pkt:getTimestamp(), pkt.data, pkt.len)
 					end
 				end
