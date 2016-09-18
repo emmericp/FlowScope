@@ -14,13 +14,27 @@ FlowScope requires gcc 5 or later. You can use
 
 to set the compiler if gcc 5 is not your default.
 
-
 Usage
 =====
 
+A simple test setup with synthetic traffic for quick testing can be built with two directly connected machines.
+
+* Install FlowScope on host A und [MoonGen](https://github.com/emmericp/MoonGen) on host B
+* Clone our [test repo](https://github.com/emmericp/flowscope-tests) containing MoonGen scripts on host B
+* Run `sudo ./phobos/build/phobos flowscope.lua 0 --trigger-expr 'udp port 60000' --dumper-expr 'host $srcIP'` on host A
+* Run `sudo /path/to/MoonGen/build/MoonGen test-high-background-traffic.lua 0 -t 4` on host B
+
+The `test-high-background-traffic.lua` MoonGen script generates a lot of random flows in the subnet 10.0.0.0/16 on random ports in the range 1000 to 10000.
+One of these IPs will generate a single packet to UDP port 60000 after a configurable delay (`-t 4`), this triggers FlowScope and all traffic from this IP is dumped.
+You can also run the packet generator more than once in a single session to take multiple captures.
+Run any of the example scripts (or FlowScope itself) with `-h` for further options.
+
+You can also manually trigger FlowScope by sending `SIGUSR1` to the process. This can be used to integrate external monitoring systems.
+
+
 Hardware Requirements
-=====
+=====================
 
 1. A NIC supported by DPDK
-2. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) require this.
+2. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) have this feature.
 
