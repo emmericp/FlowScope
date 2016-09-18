@@ -14,11 +14,11 @@ local ffi    = require "ffi"
 
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
-	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB (default = 8)."):convert(tonumber):default(8)
-	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default(1):target("rxThreads")
-	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default(1):target("analyzeThreads")
-	parser:option("--dump-past", "Time to dump before the trigger point in seconds. (Default = as far back as possible)"):convert(tonumber):default(math.huge):target("dumpPast")
-	parser:option("--dump-future", "Time to dump after the trigger point in seconds. (Default = 10s)"):convert(tonumber):default(10):target("dumpFuture")
+	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB."):convert(tonumber):default("8")
+	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default("1"):target("rxThreads")
+	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default("1"):target("analyzeThreads")
+	parser:option("--dump-past", "Time to dump before the trigger point in seconds. (default: as far back as possible)"):convert(tonumber):default(math.huge):target("dumpPast")
+	parser:option("--dump-future", "Time to dump after the trigger point in seconds."):convert(tonumber):default("10"):target("dumpFuture")
 	parser:option("--path", "Path for output pcaps."):default(".")
 	parser:mutex(
 		parser:option("--trigger-expr", "pcap filter for trigger packets."):target("triggerExpr"),
