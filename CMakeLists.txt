@@ -9,7 +9,7 @@ SET(CMAKE_C_FLAGS "-fno-stack-protector -Wall -Wextra -Wno-unused-parameter -Wno
 
 SET(PRJ qq)
 
-FILE(GLOB SOURCES src/*.c src/*.cpp)
+SET(QQ_SRC src/qq_wrapper.cpp)
 
 SET(PHOBOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/phobos)
 
@@ -21,5 +21,8 @@ INCLUDE_DIRECTORIES(
 	${PHOBOS_DIR}/src
 )
 
-ADD_LIBRARY(${PRJ} SHARED ${SOURCES})
+ADD_LIBRARY(${PRJ} SHARED ${QQ_SRC})
+
+SET(SIGUSR_SRC src/signal.cpp)
+ADD_LIBRARY(sigusr SHARED ${SIGUSR_SRC})
 

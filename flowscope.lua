@@ -9,6 +9,8 @@ local log    = require "log"
 local pcap   = require "pcap"
 local pf     = require "pf"
 local qq     = require "qq"
+local S      = require "syscall"
+local ffi    = require "ffi"
 
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
@@ -58,6 +60,7 @@ function master(args)
 		phobos.startTask("analyzer", qq, i, args.triggerExpr, args.triggerCode)
 	end
 	phobos.startSharedTask("dumper", qq, args.path, args.dumpPast, args.dumpFuture, args.dumperExpr, args.dumperCode)
+	phobos.startSharedTask("signalTrigger")
 	phobos.waitForTasks()
 	qq:delete()
 end
@@ -75,10 +78,31 @@ local function handleTrigger(pkt)
 			return
 		end
 		log:info("Found trigger packet, notifying dumper thread.")
-		pkt:dump()
-		trigger.pkt = pkt:clone()
-		trigger.triggered = pkt:getTimestamp()
+		if pkt then 
+			pkt:dump()
+			trigger.pkt = pkt:clone()
+			trigger.triggered = pkt:getTimestamp()
+		else -- not triggered by a packet but a signal
+			trigger.triggered = phobos.getTime()
+		end
 	end)
+end
+
+local signallib = ffi.load("build/sigusr")
+ffi.cdef[[
+	void install_signal_handler();
+	bool check_signal();
+]]
+
+-- I'm too stupid to use the syscall library with SIGUSR1, so this is done in C
+function signalTrigger()
+	signallib.install_signal_handler()
+	while phobos.running() do
+		if signallib.check_signal() then
+			handleTrigger()
+		end
+		phobos.sleepMillisIdle(1)
+	end
 end
 
 function analyzer(qq, id, expr, code)
