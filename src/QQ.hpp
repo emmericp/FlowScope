@@ -432,6 +432,8 @@ namespace QQ {
         std::mutex m_;
         const uint8_t* backend;
         uint8_t* current;
+		// TODO: can be optimized to store offsets instead of pointers, saving 4 byte/packet
+		// (a variant without random access could save even more memory)
         std::vector<packet_header*> refs;
         uint64_t acquisition = 0;
         constexpr static double timeout = 0.3;  // time in seconds
