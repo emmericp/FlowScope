@@ -512,9 +512,11 @@ namespace QQ {
         std::unique_lock<std::mutex> lock_;
     };
 
-    template<size_t pages_per_bucket, size_t num_buckets>
-    struct QQ {
-        QQ() {
+    template<size_t pages_per_bucket>
+    class QQ {
+
+	public:
+        QQ(size_t num_buckets): num_buckets(num_buckets) {
             if ((backend_ = (uint8_t*) mmap(NULL, pages_per_bucket * num_buckets * huge_page_size,
                                             PROT_READ | PROT_WRITE,
                                             MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
@@ -620,7 +622,7 @@ namespace QQ {
 				tail = wrap(tail + 16);
                 ++enqueue_overflow_counter;
 #ifndef NDEBUG
-                std::cerr << "\e[31m[QQ]Enqueue overflow occurred!\e[0m" << std::endl;
+                std::cerr << "[QQ] Enqueue overflow occurred, dropping last 16 buckets!" << std::endl;
 #endif
             }
             //std::cout << "c++ enqueue: counter done, head: " << head << ", tail: " << tail  << std::endl;
@@ -682,7 +684,6 @@ namespace QQ {
             return p;
         }
 
-        // TODO: revisit peek
 		Ptr<pages_per_bucket> peek(const uint8_t call_priority = 1) {
             //usleep(100);
 			//while (distance(peek_pos, head) < 2)
@@ -799,7 +800,7 @@ namespace QQ {
         }
 
 
-        template<int num_producer = 4, int num_consumer = 4, bool verbose = true>
+        template<int num_producer = 4, int num_consumer = 4, size_t num_buckets = 2048, bool verbose = true>
         static void pure_perf_test() {
             //constexpr uint64_t runs = 1024 * 1024 * 1;
             constexpr uint64_t runs = 1024 * 16;
@@ -807,7 +808,7 @@ namespace QQ {
             std::vector<std::thread> producer(0);
             std::vector<std::thread> consumer(0);
 
-            QQ<1, num_buckets> qq;
+            QQ<1> qq(num_buckets);
 
             auto start = std::chrono::high_resolution_clock::now();
 
@@ -919,10 +920,11 @@ namespace QQ {
 
     private:
         uint8_t* backend_;
-        /*volatile*/ size_t head;
-        /*volatile*/ size_t tail;
-        /*volatile*/ size_t peek_pos;
+        size_t head;
+        size_t tail;
+        size_t peek_pos;
         uint8_t priority; //!< stores the current priority level of the queue.
+		const size_t num_buckets;
         std::mutex mutex_;
         std::vector<Storage<pages_per_bucket * huge_page_size>*> storage_in_use;
 
@@ -951,7 +953,7 @@ namespace QQ {
         std::vector<uint64_t> producer_counter(num_producer, 0);
         std::vector<uint64_t> consumer_counter(num_consumer, 0);
 
-        QQ<bucket_size, num_buckets> myq{};
+        QQ<bucket_size> myq(num_buckets);
 
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -1036,7 +1038,7 @@ namespace QQ {
         std::vector<std::thread> consumer(0);
         std::vector<uint64_t> producer_counter(num_producer, 0);
 
-        QQ<bucket_size, num_buckets> myq{};
+        QQ<bucket_size> myq(num_buckets);
 
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -1091,7 +1093,7 @@ namespace QQ {
         constexpr size_t map_size = 5000000ULL;
 
         std::vector<bool> map(map_size, false);
-        QQ<1, 4> qq;
+        QQ<1> qq(4);
 
         std::thread writer([&]() {
             auto q_ptr = qq.enqueue();
@@ -1137,7 +1139,7 @@ namespace QQ {
 
     /*
     static void dump_test(const std::string path = "./") {
-        QQ<1, 16> qq;
+        QQ<1> qq(16);
 
         {
             uint64_t c = 0;

@@ -15,7 +15,7 @@ ffi.cdef [[
     
 	void qq_init();
 
-	qq_t* qq_create();
+	qq_t* qq_create(uint32_t storage_capacity);
     
 	void qq_delete(qq_t*);
     
@@ -64,9 +64,10 @@ local C = ffi.C
 
 local mod = {}
 
-function mod.createQQ()
+--- @param storageSize desired storage capacity in GiB
+function mod.createQQ(storageSize)
 	qqlib.qq_init() -- idempotent
-	return qqlib.qq_create()
+	return qqlib.qq_create(storageSize * 1024)
 end
 
 local qq = {}

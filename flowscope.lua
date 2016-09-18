@@ -5,11 +5,11 @@ local pktLib = require "packet"
 local ns     = require "namespaces"
 local log    = require "log"
 local pcap   = require "pcap"
-
-local qq          = require "qq"
+local qq     = require "qq"
 
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
+	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB (default = 8)."):convert(tonumber):default(8)
 	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default(1):target("rxThreads")
 	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default(1):target("analyzeThreads")
 	parser:option("--path", "Path for output pcaps."):default(".")
@@ -27,7 +27,7 @@ function master(args)
 	end
 	device.waitForLinks()
 	
-	local qq = qq.createQQ()
+	local qq = qq.createQQ(args.size)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
 			phobos.startTask("inserter", dev:getRxQueue(i), qq)

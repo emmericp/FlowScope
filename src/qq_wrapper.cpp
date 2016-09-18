@@ -7,12 +7,10 @@
 #include "QQ.hpp"
 #include "lifecycle.hpp"
 
-constexpr size_t wanted_cap_in_GiB 	= 8;	// total raw capacity, real memory usage will be a bit higher
 constexpr size_t bucket_size 		= 8;	// bucket size in 2 MiB pages, pick something between 4 and 32 (8 MiB - 64 MiB)
-constexpr size_t num_buckets = (wanted_cap_in_GiB * 512) / bucket_size;
 
 namespace QQ {
-	static inline void inserter_loop(uint8_t port_id, uint16_t queue_id, QQ<bucket_size, num_buckets>* qq) {
+	static inline void inserter_loop(uint8_t port_id, uint16_t queue_id, QQ<bucket_size>* qq) {
 		constexpr size_t batchsize = 64;
 		
 		const uint64_t tsc_hz = rte_get_tsc_hz();              //!< cycles per second
@@ -54,34 +52,35 @@ extern "C" {
 		QQ::init();
 	}
 
-    QQ::QQ<bucket_size, num_buckets>* qq_create() {
-        return new QQ::QQ<bucket_size, num_buckets>();
+    QQ::QQ<bucket_size>* qq_create(uint32_t storage_capacity) {
+		const size_t num_buckets = (storage_capacity / 2) / bucket_size;
+        return new QQ::QQ<bucket_size>(num_buckets);
     }
     
-    void qq_delete(QQ::QQ<bucket_size, num_buckets>* q) {
+    void qq_delete(QQ::QQ<bucket_size>* q) {
         delete q;
     }
     
-    size_t qq_size(const QQ::QQ<bucket_size, num_buckets>* q) {
+    size_t qq_size(const QQ::QQ<bucket_size>* q) {
         return q->size();
     }
     
     
-    const QQ::Ptr<bucket_size>* qq_storage_peek(QQ::QQ<bucket_size, num_buckets>* q) {
+    const QQ::Ptr<bucket_size>* qq_storage_peek(QQ::QQ<bucket_size>* q) {
         auto temp = new QQ::Ptr<bucket_size>(std::move(q->peek()));
         return temp;
     }
     
-    const QQ::Ptr<bucket_size>* qq_storage_dequeue(QQ::QQ<bucket_size, num_buckets>* q) {
+    const QQ::Ptr<bucket_size>* qq_storage_dequeue(QQ::QQ<bucket_size>* q) {
 		auto c = new QQ::Ptr<bucket_size>(std::move(q->dequeue()));
         return c;
     }
 
-    const QQ::Ptr<bucket_size>* qq_storage_try_dequeue(QQ::QQ<bucket_size, num_buckets>* q) {
+    const QQ::Ptr<bucket_size>* qq_storage_try_dequeue(QQ::QQ<bucket_size>* q) {
         return q->try_dequeue();
     }
     
-    const QQ::Ptr<bucket_size>* qq_storage_enqueue(QQ::QQ<bucket_size, num_buckets>* q) {
+    const QQ::Ptr<bucket_size>* qq_storage_enqueue(QQ::QQ<bucket_size>* q) {
         auto c = new QQ::Ptr<bucket_size>(std::move(q->enqueue()));
         return c;
     }
@@ -94,15 +93,15 @@ extern "C" {
         return ptr->size();
     }
     
-    size_t qq_get_enqueue_counter(QQ::QQ<bucket_size, num_buckets>* q) {
+    size_t qq_get_enqueue_counter(QQ::QQ<bucket_size>* q) {
 		return q->get_enqueue_counter();
 	}
 	
-	size_t qq_get_dequeue_counter(QQ::QQ<bucket_size, num_buckets>* q) {
+	size_t qq_get_dequeue_counter(QQ::QQ<bucket_size>* q) {
 		return q->get_dequeue_counter();
 	}
 	
-	void qq_set_priority(QQ::QQ<bucket_size, num_buckets>* q, const uint8_t new_priority) {
+	void qq_set_priority(QQ::QQ<bucket_size>* q, const uint8_t new_priority) {
 		return q->set_priority(new_priority);
 	}
     
@@ -118,7 +117,7 @@ extern "C" {
 		return ptr->store(ts, vlan, len, data);
     }
     
-    void dummy_enqueue(QQ::QQ<bucket_size, num_buckets>* q) {
+    void dummy_enqueue(QQ::QQ<bucket_size>* q) {
         auto ptr = q->enqueue();
         uint8_t data[64] = {55};
         memset(data, 55, 64);
@@ -143,11 +142,11 @@ extern "C" {
     }
  	
 	// implemented in C++ for better timestamp precision
-    void qq_inserter_loop(uint8_t device, uint16_t queue_id, QQ::QQ<bucket_size, num_buckets>* qq) {
+    void qq_inserter_loop(uint8_t device, uint16_t queue_id, QQ::QQ<bucket_size>* qq) {
         QQ::inserter_loop(device, queue_id, qq);
     }
     
-	size_t qq_capacity(const QQ::QQ<bucket_size, num_buckets>* q) noexcept {
+	size_t qq_capacity(const QQ::QQ<bucket_size>* q) noexcept {
         return q->capacity();
     }
     
