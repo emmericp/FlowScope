@@ -1,4 +1,4 @@
-local phobos = require "phobos"
+local moon   = require "libmoon"
 local device = require "device"
 local stats  = require "stats"
 local pktLib = require "packet"
@@ -53,15 +53,15 @@ function master(args)
 	local qq = qq.createQQ(args.size)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
-			phobos.startTask("inserter", dev:getRxQueue(i), qq)
+			moon.startTask("inserter", dev:getRxQueue(i), qq)
 		end
 	end
 	for i = 1, args.analyzeThreads do
-		phobos.startTask("analyzer", qq, i, args.triggerExpr, args.triggerCode)
+		moon.startTask("analyzer", qq, i, args.triggerExpr, args.triggerCode)
 	end
-	phobos.startSharedTask("dumper", qq, args.path, args.dumpPast, args.dumpFuture, args.dumperExpr, args.dumperCode)
-	phobos.startSharedTask("signalTrigger")
-	phobos.waitForTasks()
+	moon.startSharedTask("dumper", qq, args.path, args.dumpPast, args.dumpFuture, args.dumperExpr, args.dumperCode)
+	moon.startSharedTask("signalTrigger")
+	moon.waitForTasks()
 	qq:delete()
 end
 
@@ -83,7 +83,7 @@ local function handleTrigger(pkt)
 			trigger.pkt = pkt:clone()
 			trigger.triggered = pkt:getTimestamp()
 		else -- not triggered by a packet but a signal
-			trigger.triggered = phobos.getTime()
+			trigger.triggered = moon.getTime()
 		end
 	end)
 end
@@ -97,11 +97,11 @@ ffi.cdef[[
 -- I'm too stupid to use the syscall library with SIGUSR1, so this is done in C
 function signalTrigger()
 	signallib.install_signal_handler()
-	while phobos.running() do
+	while moon.running() do
 		if signallib.check_signal() then
 			handleTrigger()
 		end
-		phobos.sleepMillisIdle(1)
+		moon.sleepMillisIdle(1)
 	end
 end
 
@@ -116,7 +116,7 @@ function analyzer(qq, id, expr, code)
 		filter = dofile(code)
 	end
 	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
-	while phobos.running() do
+	while moon.running() do
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
@@ -205,19 +205,19 @@ end
 
 function dumper(qq, path, dumpPast, dumpFuture, expr, code)
 	-- this loop currently supports only one running dumper
-	while phobos.running() do
+	while moon.running() do
 		local triggered
 		local triggerPkt
-		while not triggered and phobos.running() do
+		while not triggered and moon.running() do
 			trigger.lock(function()
 				if trigger.triggered then
 					triggered = trigger.triggered
 					triggerPkt = trigger.pkt
 				end
 			end)
-			phobos.sleepMillisIdle(10)
+			moon.sleepMillisIdle(10)
 		end
-		if not phobos.running() then
+		if not moon.running() then
 			return
 		end
 		local filter
@@ -234,14 +234,14 @@ function dumper(qq, path, dumpPast, dumpFuture, expr, code)
 		-- we currently only sync once to systime at the trigger point
 		-- this clock will drift slightly for longer captures
 		-- (no, reasonable NUMA setups are not a problem, TSC is synced across CPUs since they share the same reference clock and reset)
-		local triggerWallTime = wallTime() - (phobos.getTime() - triggered)
+		local triggerWallTime = wallTime() - (moon.getTime() - triggered)
 		local pcapFileName = path .. "/FlowScope-dump-" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. ".pcap"
 		local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime - triggered)
 		log:info("Dumper starting to write %s", pcapFileName)
 		local stopDump = false
 		local progressShown = -math.huge
 		local dumpDuration
-		while phobos.running() and not stopDump do
+		while moon.running() and not stopDump do
 			local storage = qq:tryDequeue()
 			if storage ~= nil then
 				local size = storage:size()

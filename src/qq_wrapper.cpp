@@ -19,7 +19,7 @@ namespace QQ {
 		auto enq_ptr = qq->enqueue();
 		struct rte_mbuf* bufs[batchsize] __rte_cache_aligned;
 		
-		while (phobos::is_running(0)) {
+		while (libmoon::is_running(0)) {
 			uint16_t rx_cnt = rte_eth_rx_burst(port_id, queue_id, bufs, batchsize);
 			
 			if (rx_cnt == 0) {

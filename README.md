@@ -4,9 +4,9 @@ Triggers can be packets matching a user-defined filter or an external signal.
 Installation
 ============
 1. `git submodule update --init --recursive`
-2. Compile Phobos in the `phobos` submodule. Follow instructions there.
+2. Compile libmoon in the `libmoon` submodule. Follow instructions there.
 3. `cd build ; cmake .. ; make ; cd ..`
-4. `./phobos/build/phobos flowscope.lua --help`
+4. `./libmoon/build/libmoon flowscope.lua --help`
 
 FlowScope requires gcc 5 or later. You can use
 
@@ -21,7 +21,7 @@ A simple test setup with synthetic traffic for quick testing can be built with t
 
 * Install FlowScope on host A und [MoonGen](https://github.com/emmericp/MoonGen) on host B
 * Clone our [test repo](https://github.com/emmericp/flowscope-tests) containing MoonGen scripts on host B
-* Run `sudo ./phobos/build/phobos flowscope.lua 0 --trigger-expr 'udp port 60000' --dumper-expr 'host $srcIP'` on host A
+* Run `sudo ./libmoon/build/libmoon flowscope.lua 0 --trigger-expr 'udp port 60000' --dumper-expr 'host $srcIP'` on host A
 * Run `sudo /path/to/MoonGen/build/MoonGen test-high-background-traffic.lua 0 -t 4` on host B
 
 The `test-high-background-traffic.lua` MoonGen script generates a lot of random flows in the subnet 10.0.0.0/16 on random ports in the range 1000 to 10000.
