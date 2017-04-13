@@ -10,53 +10,53 @@ ffi.cdef [[
 		uint16_t len;
 		uint8_t data[];
 	} packet_header_t;
-    
+
 	typedef struct qq { } qq_t;
-    
+
 	void qq_init();
 
 	qq_t* qq_create(uint32_t storage_capacity);
-    
+
 	void qq_delete(qq_t*);
-    
+
 	size_t qq_size(qq_t*);
-    
+
 	size_t qq_capacity(qq_t*);
-    
+
 	typedef struct { } storage_t;
-    
+
 	storage_t* qq_storage_dequeue(qq_t*);
 
 	storage_t* qq_storage_try_dequeue(qq_t*);
-    
+
 	storage_t* qq_storage_enqueue(qq_t*);
-	
+
 	storage_t* qq_storage_peek(qq_t*);
-	
+
 	size_t qq_get_enqueue_counter(qq_t*);
-	
+
 	size_t qq_get_dequeue_counter(qq_t*);
-	
+
 	void qq_set_priority(qq_t* q, const uint8_t new_priority);
-    
+
 	void qq_storage_release(storage_t*);
-    
+
 	size_t qq_storage_size(storage_t*);
-	
+
 	bool qq_storage_store(storage_t*, uint64_t ts, uint16_t vlan, uint16_t len, const uint8_t* data);
-    
+
 	const packet_header_t& qq_storage_get_packet(storage_t*, const size_t);
-    
+
 	uint64_t qq_packet_header_get_timestamp(const packet_header_t&);
 
 	uint64_t qq_packet_header_get_vlan(const packet_header_t& h);
 
 	uint16_t qq_packet_header_get_len(const packet_header_t& h);
-    
+
 	void* qq_packet_header_get_data(const packet_header_t& h);
-    
+
 	void dummy_enqueue(qq_t* q);
-    
+
 	void qq_inserter_loop(uint8_t device, uint16_t queue_id, qq_t* qq);
 ]]
 
@@ -87,7 +87,7 @@ function qq:size()
 end
 
 function qq:capacity()
-	return qqlib.qq_capacity(self)
+	return tonumber(qqlib.qq_capacity(self))
 end
 
 function qq:dequeue()
@@ -135,7 +135,7 @@ function storage:store(ts, vlan, len, data)
 end
 
 function storage:getPacket(idx)
- 	return qqlib.qq_storage_get_packet(self, idx)
+	return qqlib.qq_storage_get_packet(self, idx)
 end
 
 local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
@@ -158,7 +158,7 @@ function packetHeader:getData()
 end
 
 function packetHeader:dump()
-    return packetLib.getEthernetPacket(self):resolveLastHeader():dump()
+	return packetLib.getEthernetPacket(self):resolveLastHeader():dump()
 end
 
 function packetHeader:clone()
