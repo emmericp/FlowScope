@@ -23,7 +23,7 @@ ffi.cdef [[
 
 	size_t qq_capacity(qq_t*);
 
-	typedef struct { } storage_t;
+	typedef struct storage { } storage_t;
 
 	storage_t* qq_storage_dequeue(qq_t*);
 
@@ -107,11 +107,11 @@ function qq:peek()
 end
 
 function qq:getEnqueueCounter()
-	return qqlib.qq_get_enqueue_counter(self)
+	return tonumber(qqlib.qq_get_enqueue_counter(self))
 end
 
 function qq:getDequeueCounter()
-	return qqlib.qq_get_dequeue_counter(self)
+	return tonumber(qqlib.qq_get_dequeue_counter(self))
 end
 
 function qq:setPriority(new_priority)
