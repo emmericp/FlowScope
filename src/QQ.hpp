@@ -663,7 +663,13 @@ namespace QQ {
             std::unique_lock<std::mutex> lk(mutex_);
 			//std::cout << "c++ dequeue: got qq lock, head: " << head << ", tail: " << tail << std::endl;
             //cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); });
-            non_empty.wait(lk, [&] { return distance(tail, head) > 8; });
+            //non_empty.wait(lk, [&] { return distance(tail, head) > 8; }); //This waits as short as possible
+            
+            non_empty.wait(lk, [&] { 
+                return distance(head, tail) < 8    // Wait until tail is less than 12 buckets behind head
+                && distance(tail, head) > 8; // Wait until tail is more than 8 bucktes behind head
+            });  // This waits until QQ is full
+            
 			//non_empty.wait(lk, [&] { return !empty_no_lock(); });
 			//if (empty_no_lock()) {
 			//	std::cerr << "empty" << std::endl;
