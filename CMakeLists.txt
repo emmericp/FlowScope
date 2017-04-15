@@ -27,3 +27,5 @@ ADD_LIBRARY(${PRJ} SHARED ${QQ_SRC})
 SET(SIGUSR_SRC src/signal.cpp)
 ADD_LIBRARY(sigusr SHARED ${SIGUSR_SRC})
 
+SET(FLOWTRACKER_SRC src/flowtracker.cpp src/rte_allocator.hpp)
+ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
