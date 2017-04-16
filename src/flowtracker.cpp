@@ -223,6 +223,7 @@ extern "C" {
         params.hash_func_init_val = 0;
         params.socket_id = rte_socket_id();
         params.name = name;
+        params.extra_flag |= (RTE_HASH_EXTRA_FLAGS_TRANS_MEM_SUPPORT | RTE_HASH_EXTRA_FLAGS_MULTI_WRITER_ADD);
         auto ipv4_map = rte_hash_create(&params);
         if(ipv4_map == NULL)
             rte_panic("Could not create IPv4 flow hash map %s, %d = %s\n", name, rte_errno, rte_strerror(rte_errno));
@@ -240,6 +241,10 @@ extern "C" {
     
     int32_t rte_hash_add_key_v4(const struct rte_hash *h, const void *key) {
         return rte_hash_add_key(h, key);
+    }
+    
+    int rte_hash_lookup_bulk_v4(const struct rte_hash *h, const void **keys, uint32_t num_keys, int32_t *positions) {
+        return rte_hash_lookup_bulk(h, keys, num_keys, positions);
     }
     
 }

@@ -59,8 +59,9 @@ function master(args)
 			moon.startTask("inserter", dev:getRxQueue(i), qq)
 		end
 	end
+	local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
 	for i = 1, args.analyzeThreads do
-		moon.startTask("analyzer", qq, i, fooModule)
+		moon.startTask("batchedAnalyzer", qq, i, tracker)
 	end
 	for i = 1, 1 do
 		moon.startTask("continuousDumper", qq, i)
@@ -133,8 +134,61 @@ function fooModule:done()
 	self.rxCtr:finalize()
 end
 
-function analyzer(qq, id, module)
-	local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
+function batchedAnalyzer(qq, id, tracker)
+	local batchsize = 64
+	--local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
+	local flowdata = ffi.new("struct foo_flow_data")
+	local tuple = ffi.new("struct ipv4_5tuple")
+	local tupleBatch = ffi.new("struct ipv4_5tuple[?]", batchsize)
+	local keyPtr = ffi.new("const void *[?]", batchsize)
+	for i = 0, batchsize do
+		keyPtr[i] = tupleBatch + i
+	end
+	print(keyPtr[3], tupleBatch + 3)
+	local positionsBatch = ffi.new("int32_t[?]", batchsize)
+	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
+	while moon.running() do
+		local storage = qq:peek()
+		
+		for i = 0, storage:size() - 1 - batchsize, batchsize do
+			for j = 0, batchsize - 1 do
+				--print("Build phase", "i:", i, "j:", j)
+				local pkt = storage:getPacket(i + j)
+				rxCtr:updateWithSize(1, pkt.len)
+				local parsedPkt = pktLib.getUdp4Packet(pkt)
+				tupleBatch[j].ip_dst = parsedPkt.ip4:getDst()
+				tupleBatch[j].ip_src = parsedPkt.ip4:getSrc()
+				tupleBatch[j].port_dst = parsedPkt.udp:getDstPort()
+				tupleBatch[j].port_src = parsedPkt.udp:getSrcPort()
+				tupleBatch[j].proto = parsedPkt.ip4:getProtocol()
+			end
+			
+			--print("Performing lookup")
+			local r = tracker:lookupBatch(keyPtr, batchsize, positionsBatch)
+			--print("Lookup done")
+			if r < 0 then
+				print("Batch lookup failed")
+				break
+			end
+			
+			for i = 0, batchsize - 1 do
+				if positionsBatch[i] < 0 then
+					local r = tracker:add_key(tupleBatch[i])
+					if r < 0 then
+						print("Add error:", r)
+					end
+				end
+			end
+		end
+		-- TODO handle rest
+		storage:release()
+	end
+	rxCtr:finalize()
+	--tracker:delete()
+end
+
+function analyzer(qq, id, tracker)
+	local tracker = tracker or flowtracker.createHashmap(2^20, "map " .. tostring(id))
 	local flowdata = ffi.new("struct foo_flow_data")
 	local tuple = ffi.new("struct ipv4_5tuple")
 	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
@@ -150,32 +204,18 @@ function analyzer(qq, id, module)
 			tuple.port_dst = parsedPkt.udp:getDstPort()
 			tuple.port_src = parsedPkt.udp:getSrcPort()
 			tuple.proto = parsedPkt.ip4:getProtocol()
+			
 			if tracker:lookup(tuple) < 0 then
-				tracker:add_key(tuple)
+				local r = tracker:add_key(tuple)
+				if r < 0 then
+					print("Add error:", r)
+				end
 			end
-			
-			--print("parsedPkt:", parsedPkt, parsedPkt.ip4:getProtocol())
-			
--- 			local fd = tracker:get_flow_data_v4(parsedPkt.ip4:getSrc(), parsedPkt.udp:getSrcPort(),
--- 												parsedPkt.ip4:getDst(), parsedPkt.udp:getDstPort(),
--- 												parsedPkt.ip4:getProtocol())
-			
--- 			if fd == nil then
--- 				--flowdata.start_ts = pkt:getTimestamp()
--- 				--local r = tracker:add_flow_v4(0, 1,
--- 				--								2, 3,
--- 				--								4, flowdata)
--- 			else
--- 				--print("seen packet:", fd)
--- 				fd.observed_ttl = 55
--- 			end
-			--]]
-			--print("r:", r)
 		end
 		storage:release()
 	end
 	rxCtr:finalize()
-    tracker:delete()
+	--tracker:delete()
 end
 
 local function filterDumperPacket(pkt)
