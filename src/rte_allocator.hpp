@@ -3,6 +3,9 @@
 #include <cstddef>
 #include <type_traits>
 
+
+#include <iostream>
+
 #include <rte_config.h>
 #include <rte_malloc.h>
 
@@ -21,7 +24,15 @@ struct rte_allocator {
 
 template <class T>
 T* rte_allocator<T>::allocate(std::size_t n) {
+#if 0
     return static_cast<T*>(rte_malloc(NULL, n, 0));
+#else
+    std::cout << "Allocate " << n << " bytes" << std::endl;
+    auto m = rte_malloc(NULL, n, 0);
+    if (m == NULL)
+        exit(55);
+    return static_cast<T*>(m);
+#endif
 }
 
 template <class T>

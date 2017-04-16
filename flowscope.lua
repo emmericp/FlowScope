@@ -66,8 +66,9 @@ function master(args)
 		moon.startTask("continuousDumper", qq, i)
 	end
 	
-	moon.startSharedTask("signalTrigger")
-	moon.startSharedTask("fillLevelChecker", qq)
+	--moon.startSharedTask("signalTrigger")
+	--moon.startSharedTask("fillLevelChecker", qq)
+	moon.startTask("fillLevelChecker", qq)
 	moon.waitForTasks()
 	qq:delete()
 end
@@ -133,18 +134,43 @@ function fooModule:done()
 end
 
 function analyzer(qq, id, module)
-	local tracker = flowtracker.createFlowtracker(1024 * 4) --SIGSEGV bei >2024
+	local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
 	local flowdata = ffi.new("struct foo_flow_data")
+	local tuple = ffi.new("struct ipv4_5tuple")
 	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
 	while moon.running() do
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
+			
 			local parsedPkt = pktLib.getUdp4Packet(pkt)
-			print("parsedPkt:", parsedPkt, parsedPkt.ip4:getSrcString())
-			local r = tracker:add_flow_v4(parsedPkt.ip4:getSrc(),2,80,1234,44,flowdata)
-			print("r:", r)
+			tuple.ip_dst = parsedPkt.ip4:getDst()
+			tuple.ip_src = parsedPkt.ip4:getSrc()
+			tuple.port_dst = parsedPkt.udp:getDstPort()
+			tuple.port_src = parsedPkt.udp:getSrcPort()
+			tuple.proto = parsedPkt.ip4:getProtocol()
+			if tracker:lookup(tuple) < 0 then
+				tracker:add_key(tuple)
+			end
+			
+			--print("parsedPkt:", parsedPkt, parsedPkt.ip4:getProtocol())
+			
+-- 			local fd = tracker:get_flow_data_v4(parsedPkt.ip4:getSrc(), parsedPkt.udp:getSrcPort(),
+-- 												parsedPkt.ip4:getDst(), parsedPkt.udp:getDstPort(),
+-- 												parsedPkt.ip4:getProtocol())
+			
+-- 			if fd == nil then
+-- 				--flowdata.start_ts = pkt:getTimestamp()
+-- 				--local r = tracker:add_flow_v4(0, 1,
+-- 				--								2, 3,
+-- 				--								4, flowdata)
+-- 			else
+-- 				--print("seen packet:", fd)
+-- 				fd.observed_ttl = 55
+-- 			end
+			--]]
+			--print("r:", r)
 		end
 		storage:release()
 	end

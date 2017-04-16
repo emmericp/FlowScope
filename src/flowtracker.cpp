@@ -37,9 +37,9 @@ namespace flowtracker {
     template<typename T>
     struct flowtracker {
         explicit flowtracker(const std::uint32_t max_flows = 1024) :
-                ipv4_flowdata(std::vector<T, alloc<T>>(max_flows)),
+                ipv4_flowdata(std::vector<T>(max_flows)),
+                //ipv4_flowdata(std::vector<T, alloc<T>>(max_flows)),
                 ipv6_flowdata(std::vector<T>(max_flows)) {
-            printf("ctor\n");
             rte_hash_parameters params = {};
             params.entries = max_flows;
             params.key_len = sizeof(ipv4_5tuple);
@@ -47,17 +47,14 @@ namespace flowtracker {
             params.hash_func_init_val = 0;
             params.socket_id = rte_socket_id();
             params.name = "ipv4_flow_map";
-            printf("params done\n");
             ipv4_map = rte_hash_create(&params);
             if(ipv4_map == NULL)
                 rte_panic("Could not create IPv4 flow hash map, errno = %d\n", rte_errno);
-            printf("v4map done\n");
             params.key_len = sizeof(ipv6_5tuple);
             params.name = "ipv6_flow_map";
             ipv6_map = rte_hash_create(&params);
             if(ipv6_map == NULL)
                 rte_panic("Could not create IPv6 flow hash map, errno = %d\n", rte_errno);
-            printf("v6map done\n");
         }
         
         ~flowtracker() {
@@ -113,7 +110,8 @@ namespace flowtracker {
     private:
         const struct rte_hash* ipv4_map;
         const struct rte_hash* ipv6_map;
-        std::vector<T, alloc<T>> ipv4_flowdata;
+        std::vector<T> ipv4_flowdata;
+        //std::vector<T, alloc<T>> ipv4_flowdata;
         std::vector<T> ipv6_flowdata;
     };
 }
@@ -144,7 +142,7 @@ extern "C" {
         void* temp = rte_malloc(NULL, sizeof(tracker), 0);
         if (temp == NULL)
             rte_panic("Unable to allocate memory for flowtracker\n");
-#if 1
+#if 0
         auto* tr = new(temp) tracker(max_flows);
         printf("new()\n");
         return tr;
@@ -213,5 +211,35 @@ extern "C" {
     void analyze_v4(tracker* tr, uint64_t ts, const flowtracker::ipv4_5tuple* const tpl, const uint8_t ttl);
     
     void analyze_v6(tracker* tr, uint64_t ts, const flowtracker::ipv6_5tuple* const tpl, const uint8_t ttl);
+    
+    
+    /* rte_hash wrapper */
+    
+    struct rte_hash* rte_hash_create_v4(uint32_t max_flows, const char* name) {
+        rte_hash_parameters params = {};
+        params.entries = max_flows;
+        params.key_len = sizeof(flowtracker::ipv4_5tuple);
+        params.hash_func = rte_jhash;
+        params.hash_func_init_val = 0;
+        params.socket_id = rte_socket_id();
+        params.name = name;
+        auto ipv4_map = rte_hash_create(&params);
+        if(ipv4_map == NULL)
+            rte_panic("Could not create IPv4 flow hash map %s, %d = %s\n", name, rte_errno, rte_strerror(rte_errno));
+        
+        return ipv4_map;
+    }
+    
+    int32_t rte_hash_lookup_v4(const struct rte_hash *h, const void *key) {
+        return rte_hash_lookup(h, key);
+    }
+    
+    void rte_hash_free_v4(struct rte_hash *h) {
+        rte_hash_free(h);
+    }
+    
+    int32_t rte_hash_add_key_v4(const struct rte_hash *h, const void *key) {
+        return rte_hash_add_key(h, key);
+    }
     
 }
