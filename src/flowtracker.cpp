@@ -38,7 +38,8 @@ namespace flowtracker {
     struct flowtracker {
         explicit flowtracker(const std::uint32_t max_flows = 1024) :
                 ipv4_flowdata(std::vector<T, alloc<T>>(max_flows)),
-                ipv6_flowdata(std::vector<T>(max_flows)) {            
+                ipv6_flowdata(std::vector<T>(max_flows)) {
+            printf("ctor\n");
             rte_hash_parameters params = {};
             params.entries = max_flows;
             params.key_len = sizeof(ipv4_5tuple);
@@ -46,15 +47,17 @@ namespace flowtracker {
             params.hash_func_init_val = 0;
             params.socket_id = rte_socket_id();
             params.name = "ipv4_flow_map";
+            printf("params done\n");
             ipv4_map = rte_hash_create(&params);
             if(ipv4_map == NULL)
                 rte_panic("Could not create IPv4 flow hash map, errno = %d\n", rte_errno);
-            
+            printf("v4map done\n");
             params.key_len = sizeof(ipv6_5tuple);
             params.name = "ipv6_flow_map";
             ipv6_map = rte_hash_create(&params);
             if(ipv6_map == NULL)
                 rte_panic("Could not create IPv6 flow hash map, errno = %d\n", rte_errno);
+            printf("v6map done\n");
         }
         
         ~flowtracker() {
@@ -62,21 +65,20 @@ namespace flowtracker {
             rte_hash_free(const_cast<rte_hash*>(ipv6_map));
         }
         
-        template<typename F>
-        std::int32_t add_flow(const F& flow_tuple, const T* flow_data);
-        
-        std::int32_t add_flow(const ipv4_5tuple& flow_tuple, const T& flow_data) {
-            std::int32_t ret = rte_hash_add_key(this->ipv4_map, flow_tuple);
+        std::int32_t add_flow(const ipv4_5tuple& flow_tuple, const T* flow_data) {
+            std::int32_t ret = rte_hash_add_key(this->ipv4_map, &flow_tuple);
             if (ret < 0)
                 return ret;
-            this->ipv4_flowdata[ret] = flow_data;
+            this->ipv4_flowdata[ret] = *flow_data;
+            return ret;
         }
         
-        std::int32_t add_flow(const ipv6_5tuple& flow_tuple, const T& flow_data) {
-            std::int32_t ret = rte_hash_add_key(this->ipv6_map, flow_tuple);
+        std::int32_t add_flow(const ipv6_5tuple& flow_tuple, const T* flow_data) {
+            std::int32_t ret = rte_hash_add_key(this->ipv6_map, &flow_tuple);
             if (ret < 0)
                 return ret;
-            this->ipv6_flowdata[ret] = flow_data;
+            this->ipv6_flowdata[ret] = *flow_data;
+            return ret;
         }
         
         template<typename F>
@@ -140,11 +142,18 @@ extern "C" {
     
     tracker* flowtracker_create(uint32_t max_flows) {
         void* temp = rte_malloc(NULL, sizeof(tracker), 0);
+        if (temp == NULL)
+            rte_panic("Unable to allocate memory for flowtracker\n");
+#if 1
+        auto* tr = new(temp) tracker(max_flows);
+        printf("new()\n");
+        return tr;
+#endif
         return new(temp) tracker(max_flows);
     }
     
     void flowtracker_delete(tracker* tr) {
-        delete tr;
+        rte_free(tr);
     }
     
     /*
@@ -159,11 +168,18 @@ extern "C" {
         flowtracker::ipv4_5tuple tpl {
             ip_dst, ip_src, port_dst, port_src, proto
         };
+#ifdef DNDEBUG
         return tr->add_flow(tpl, flow_data);
+#else
+        int ret = tr->add_flow(tpl, flow_data);
+        if (ret < 0)
+            rte_exit(EXIT_FAILURE, "Unable to add key to ipv4_map: %d = %s\n", ret, rte_strerror(-ret));
+        return ret;
+#endif
     }
     
     int32_t flowtracker_add_flow_v6(tracker* tr, const v6tpl* const tpl, const D* flow_data) {
-        return tr->add_flow(tpl, flow_data);
+        return tr->add_flow(*tpl, flow_data);
     }
     
     int32_t flowtracker_remove_flow_v4(tracker* tr, const flowtracker::ipv4_5tuple* const tpl) {

@@ -11,6 +11,9 @@ local pf     = require "pf"
 local qq     = require "qq"
 local S      = require "syscall"
 local ffi    = require "ffi"
+local colors = require "colors"
+local pipe   = require "pipe"
+local flowtracker = require "flowtracker"
 
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
@@ -57,10 +60,14 @@ function master(args)
 		end
 	end
 	for i = 1, args.analyzeThreads do
-		moon.startTask("analyzer", qq, i, args.triggerExpr, args.triggerCode)
+		moon.startTask("analyzer", qq, i, fooModule)
 	end
-	moon.startSharedTask("dumper", qq, args.path, args.dumpPast, args.dumpFuture, args.dumperExpr, args.dumperCode)
+	for i = 1, 1 do
+		moon.startTask("continuousDumper", qq, i)
+	end
+	
 	moon.startSharedTask("signalTrigger")
+	moon.startSharedTask("fillLevelChecker", qq)
 	moon.waitForTasks()
 	qq:delete()
 end
@@ -88,6 +95,13 @@ local function handleTrigger(pkt)
 	end)
 end
 
+function fillLevelChecker(qq)
+	while moon.running() do
+		print(green("[QQ] Stored buckets: ") .. qq:size() .. "/" .. qq:capacity())
+		moon.sleepMillisIdle(1000)
+	end
+end
+
 local signallib = ffi.load("build/sigusr")
 ffi.cdef[[
 	void install_signal_handler();
@@ -105,29 +119,37 @@ function signalTrigger()
 	end
 end
 
-function analyzer(qq, id, expr, code)
-	local filter
-	if expr then
-		local pfFilter = pf.compile_filter(expr)
-		filter = function(pkt)
-			return pfFilter(pkt.data, pkt.len)
-		end
-	else
-		filter = dofile(code)
-	end
+fooModule = {
+	rxCtr = stats:newManualRxCounter("FooModule #1", "plain"),
+	bar = function(pkt) end
+}
+
+function fooModule:analyze(pkt)
+	self.rxCtr:updateWithSize(1, pkt:getLength())
+end
+
+function fooModule:done()
+	self.rxCtr:finalize()
+end
+
+function analyzer(qq, id, module)
+	local tracker = flowtracker.createFlowtracker(1024 * 4) --SIGSEGV bei >2024
+	local flowdata = ffi.new("struct foo_flow_data")
 	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
 	while moon.running() do
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
-			if filter(pkt) then
-				handleTrigger(pkt)
-			end
+			local parsedPkt = pktLib.getUdp4Packet(pkt)
+			print("parsedPkt:", parsedPkt, parsedPkt.ip4:getSrcString())
+			local r = tracker:add_flow_v4(parsedPkt.ip4:getSrc(),2,80,1234,44,flowdata)
+			print("r:", r)
 		end
 		storage:release()
 	end
 	rxCtr:finalize()
+    tracker:delete()
 end
 
 local function filterDumperPacket(pkt)
@@ -201,6 +223,21 @@ end
 local function clearTrigger()
 	trigger.pkt = nil
 	trigger.triggered = nil
+end
+
+function continuousDumper(qq, id, path)
+	local rxCtr = stats:newManualRxCounter("QQ Dumper Thread   #" .. id, "plain")
+	while moon.running() do
+		local storage = qq:dequeue()
+		local size = storage:size()
+		for i = 0, storage:size() - 1 do
+			local pkt = storage:getPacket(i)
+			local timestamp = pkt:getTimestamp()
+			rxCtr:updateWithSize(1, pkt:getLength())
+		end
+		storage:release()
+	end
+	rxCtr:finalize()
 end
 
 function dumper(qq, path, dumpPast, dumpFuture, expr, code)

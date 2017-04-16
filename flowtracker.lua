@@ -11,17 +11,17 @@ ffi.cdef [[
         uint8_t observed_ttl;
     } __attribute__((__packed__));
 
-    typedef struct flowtracker { } flowtracker;
+    typedef struct flowtracker { } flowtracker_t;
 
-    flowtracker* flowtracker_create(uint32_t max_flows);
+    flowtracker_t* flowtracker_create(uint32_t max_flows);
 
-    void flowtracker_delete(flowtracker* tr);
+    void flowtracker_delete(flowtracker_t* tr);
     
-    int32_t flowtracker_add_flow_v4(flowtracker* tr, uint32_t ip_src, uint16_t port_src,
+    int32_t flowtracker_add_flow_v4(flowtracker_t* tr, uint32_t ip_src, uint16_t port_src,
         uint32_t ip_dst, uint16_t port_dst, uint8_t proto,
-        const struct flow_data* flow_data);
+        const struct foo_flow_data* flow_data);
     
-    struct foo_flow_data* flowtracker_get_flow_data_v4(flowtracker* tr, uint32_t ip_src, uint16_t port_src,
+        struct foo_flow_data* flowtracker_get_flow_data_v4(flowtracker_t* tr, uint32_t ip_src, uint16_t port_src,
         uint32_t ip_dst, uint16_t port_dst, uint8_t proto);
 ]]
 
@@ -45,13 +45,14 @@ function flowtracker:delete()
 end
 
 function flowtracker:add_flow_v4(ip_src, port_src, ip_dst, port_dst, proto, flow_data)
-    return flowtrackerlib.flowtracker_add_flow_v4(self, ip_src, port_src, ip_dst, port_dst, proto, data)
+    print("lua", flow_data)
+    return flowtrackerlib.flowtracker_add_flow_v4(self, ip_src, port_src, ip_dst, port_dst, proto, flow_data)
 end
 
 function flowtracker:get_flow_data_v4(ip_src, port_src, ip_dst, port_dst, proto)
     return flowtrackerlib.flowtracker_get_flow_data_v4(self, ip_src, port_src, ip_dst, port_dst, proto)
 end
 
-ffi.metatype("flowtracker", flowtracker)
+ffi.metatype("flowtracker_t", flowtracker)
 
 return mod
