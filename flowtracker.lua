@@ -47,7 +47,8 @@ ffi.cdef [[
     void rte_hash_free_v4(struct rte_hash *h);
     int32_t rte_hash_add_key_v4(const struct rte_hash *h, const void *key);
     int32_t rte_hash_lookup_v4(const struct rte_hash *h, const void *key);
-    int rte_hash_lookup_bulk_v4(const struct rte_hash *h, const void **keys, uint32_t num_keys, int32_t *positions);
+    int rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys, uint32_t num_keys, int32_t *positions);
+    int32_t rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next);
 ]]
 
 local C = ffi.C
@@ -103,7 +104,8 @@ function hash:delete()
 end
 
 function hash:lookupBatch(keys, numKeys, positions)
-    return flowtrackerlib.rte_hash_lookup_bulk_v4(self, keys, numKeys, positions)
+    return C.rte_hash_lookup_bulk(self, keys, numKeys, positions)
 end
+
 
 return mod
