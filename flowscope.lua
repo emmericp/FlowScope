@@ -13,6 +13,7 @@ local S      = require "syscall"
 local ffi    = require "ffi"
 local colors = require "colors"
 local pipe   = require "pipe"
+local timer  = require "timer"
 local flowtracker = require "flowtracker"
 
 function configure(parser)
@@ -44,22 +45,23 @@ end
 local trigger = ns.get()
 
 function master(args)
-	for i, dev in ipairs(args.dev) do
-		args.dev[i] = device.config{
-			port = dev,
-			rxQueues = args.rxThreads,
-			rssQueues = args.rxThreads
-		}
-	end
-	device.waitForLinks()
+-- 	for i, dev in ipairs(args.dev) do
+-- 		args.dev[i] = device.config{
+-- 			port = dev,
+-- 			rxQueues = args.rxThreads,
+-- 			rssQueues = args.rxThreads
+-- 		}
+-- 	end
+-- 	device.waitForLinks()
 	
 	local qq = qq.createQQ(args.size)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
-			moon.startTask("inserter", dev:getRxQueue(i), qq)
+			moon.startTask("traffic_generator", qq, i)
+			--moon.startTask("inserter", dev:getRxQueue(i), qq)
 		end
 	end
-	local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
+	local tracker = flowtracker.createHashmap(2^24, "map 0")
 	for i = 1, args.analyzeThreads do
 		moon.startTask("batchedAnalyzer", qq, i, tracker)
 	end
@@ -68,15 +70,57 @@ function master(args)
 	end
 	
 	--moon.startSharedTask("signalTrigger")
-	--moon.startSharedTask("fillLevelChecker", qq)
-	moon.startTask("fillLevelChecker", qq)
+	moon.startSharedTask("fillLevelChecker", qq)
+	--moon.startTask("fillLevelChecker", qq)
 	moon.waitForTasks()
+	tracker:delete()
 	qq:delete()
 end
 
 function inserter(rxQueue, qq)
 	-- the inserter is C++ in libqq to get microsecond-level software timestamping precision
 	qq:inserterLoop(rxQueue)
+end
+
+
+-- FIXME: Use libmoon packet library instead of zeroed buffer
+function traffic_generator(qq, id, packetSize, newFlowRate, rate)
+	local packetSize = packetSize or 64
+	local newFlowRate = newFlowRate or 3000
+	local rate = rate or 10
+	local baseIP = parseIPAddress("10.0.0.2")
+	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
+	local rateLimiter = timer:new(1.0 / 30) -- 20 buckets/s
+	local newFlowTimer = timer:new(1.0 / newFlowRate) -- 20 new flows/s
+	
+	local buf = {}
+	buf["ptr"] = ffi.new("uint8_t[?]", packetSize)
+	buf["getData"] = function() return ffi.cast("void*", buf.ptr) end
+	local pkt = pktLib.getUdp4Packet(buf)
+	pkt.ip4:fill()
+	pkt.ip4.src:set(baseIP - 1)
+	pkt.ip4.dst:set(baseIP)
+	pkt.ip4:setProtocol(ip.PROTO_UDP)
+	pkt.udp:setSrcPort(1000)
+	pkt.udp:setDstPort(2000)
+	pkt:dump()
+	
+	while moon.running() do
+		local s1 = qq:enqueue()
+		local ts = moon.getTime()
+		repeat
+			pkt.ip4.dst:set(baseIP + math.random(0, 2^8))
+		until not s1:store(ts, 0, packetSize, buf.ptr)
+		txCtr:updateWithSize(s1:size(), packetSize)
+		s1:release()
+		if newFlowTimer:expired() then
+			baseIP = baseIP + 1
+			newFlowTimer:reset()
+		end
+		rateLimiter:wait()
+		rateLimiter:reset()
+	end
+	txCtr:finalize()
 end
 
 local function handleTrigger(pkt)
@@ -136,9 +180,8 @@ end
 
 function batchedAnalyzer(qq, id, tracker)
 	local batchsize = 64
-	--local tracker = flowtracker.createHashmap(2^20, "map " .. tostring(id))
+	local addCtr = 0
 	local flowdata = ffi.new("struct foo_flow_data")
-	local tuple = ffi.new("struct ipv4_5tuple")
 	local tupleBatch = ffi.new("struct ipv4_5tuple[?]", batchsize)
 	local keyPtr = ffi.new("const void *[?]", batchsize)
 	for i = 0, batchsize do
@@ -175,8 +218,10 @@ function batchedAnalyzer(qq, id, tracker)
 				if positionsBatch[i] < 0 then
 					local r = tracker:add_key(tupleBatch[i])
 					if r < 0 then
-						print("Add error:", r)
+						print(id, "Add error:", r, "inserted items:", addCtr)
+						moon:stop()
 					end
+					addCtr = addCtr + 1
 				end
 			end
 		end
@@ -184,7 +229,7 @@ function batchedAnalyzer(qq, id, tracker)
 		storage:release()
 	end
 	rxCtr:finalize()
-	--tracker:delete()
+	print("[QQ Analyzer] Added flows:", addCtr)
 end
 
 function analyzer(qq, id, tracker)
