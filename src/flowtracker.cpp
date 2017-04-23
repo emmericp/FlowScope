@@ -232,20 +232,7 @@ extern "C" {
         return ipv4_map;
     }
     
-    std::int32_t rte_hash_lookup_v4(const struct rte_hash *h, const void *key) {
+    std::int32_t rte_hash_lookup(const struct rte_hash *h, const void *key) {
         return rte_hash_lookup(h, key);
     }
-    
-    void rte_hash_free_v4(struct rte_hash *h) {
-        rte_hash_free(h);
-    }
-    
-    std::int32_t rte_hash_add_key_v4(const struct rte_hash *h, const void *key) {
-        return rte_hash_add_key(h, key);
-    }
-    
-    int rte_hash_lookup_bulk_v4(const struct rte_hash *h, const void **keys, std::uint32_t num_keys, std::int32_t *positions) {
-        return rte_hash_lookup_bulk(h, keys, num_keys, positions);
-    }
-    
 }

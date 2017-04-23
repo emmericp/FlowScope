@@ -44,9 +44,9 @@ ffi.cdef [[
     /* rte_hash wrapper */
     struct rte_hash { };
     struct rte_hash* rte_hash_create_v4(uint32_t max_flows, const char* name);
-    void rte_hash_free_v4(struct rte_hash *h);
-    int32_t rte_hash_add_key_v4(const struct rte_hash *h, const void *key);
-    int32_t rte_hash_lookup_v4(const struct rte_hash *h, const void *key);
+    void rte_hash_free(struct rte_hash *h);
+    int32_t rte_hash_add_key(const struct rte_hash *h, const void *key);
+    int32_t rte_hash_lookup(const struct rte_hash *h, const void *key);
     int rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys, uint32_t num_keys, int32_t *positions);
     int32_t rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next);
 ]]
@@ -92,15 +92,15 @@ hash.__index = hash
 ffi.metatype("struct rte_hash", hash)
 
 function hash:add_key(v4Tuple)
-    return flowtrackerlib.rte_hash_add_key_v4(self, v4Tuple)
+    return C.rte_hash_add_key(self, v4Tuple)
 end
 
 function hash:lookup(v4Tuple)
-    return flowtrackerlib.rte_hash_lookup_v4(self, v4Tuple)
+    return C.rte_hash_lookup(self, v4Tuple)
 end
 
 function hash:delete()
-    flowtrackerlib.rte_hash_free_v4(self)
+    C.rte_hash_free(self)
 end
 
 function hash:lookupBatch(keys, numKeys, positions)
