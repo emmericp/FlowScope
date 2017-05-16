@@ -231,8 +231,4 @@ extern "C" {
         
         return ipv4_map;
     }
-    
-    std::int32_t rte_hash_lookup(const struct rte_hash *h, const void *key) {
-        return rte_hash_lookup(h, key);
-    }
 }
