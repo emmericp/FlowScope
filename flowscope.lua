@@ -90,14 +90,14 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local rate = rate or 10
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
-	local rateLimiter = timer:new(1.0 / 30) -- 20 buckets/s
-	local newFlowTimer = timer:new(1.0 / newFlowRate) -- 20 new flows/s
+	local rateLimiter = timer:new(1.0 / rate) -- buckets/s
+	local newFlowTimer = timer:new(1.0 / newFlowRate) -- new flows/s
 	
 	local buf = {}
 	buf["ptr"] = ffi.new("uint8_t[?]", packetSize)
 	buf["getData"] = function() return ffi.cast("void*", buf.ptr) end
 	local pkt = pktLib.getUdp4Packet(buf)
-	pkt.ip4:fill()
+	pkt:fill{pktLength = packetSize}
 	pkt.ip4.src:set(baseIP - 1)
 	pkt.ip4.dst:set(baseIP)
 	pkt.ip4:setProtocol(ip.PROTO_UDP)

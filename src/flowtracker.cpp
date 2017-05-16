@@ -1,3 +1,5 @@
+#include <tuple.hpp>
+
 #include <cstdint>
 #include <vector>
 
@@ -16,24 +18,7 @@
 template<typename T> using alloc = std::scoped_allocator_adaptor<rte_allocator<T>>;
 
 namespace flowtracker {
-    constexpr std::uint8_t IPV6_ADDR_LEN = 16;
     constexpr std::size_t batch_size = 64;
-    
-    struct ipv4_5tuple {
-        std::uint32_t ip_dst;
-        std::uint32_t ip_src;
-        std::uint16_t port_dst;
-        std::uint16_t port_src;
-        std::uint8_t  proto;
-    } __attribute__((__packed__));
-    
-    struct ipv6_5tuple {
-        std::uint8_t  ip_dst[IPV6_ADDR_LEN];
-        std::uint8_t  ip_src[IPV6_ADDR_LEN];
-        std::uint16_t port_dst;
-        std::uint16_t port_src;
-        std::uint8_t  proto;
-    } __attribute__((__packed__));
     
     template<typename T>
     struct flowtracker {
