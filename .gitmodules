@@ -6,4 +6,5 @@
 	url = https://github.com/pudelkoM/junction.git
 [submodule "turf"]
 	path = turf
-	url = https://github.com/preshing/turf.git
+	url = https://github.com/pudelkoM/turf.git
+
