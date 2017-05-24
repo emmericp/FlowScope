@@ -35,6 +35,7 @@ SET(FLOWTRACKER_SRC
     src/rte_allocator.hpp
     src/junction_wrapper.cpp
     src/tuple.hpp
+    src/tuple.cpp
 )
 ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
 target_link_libraries(flowtracker ${JUNCTION_ALL_LIBRARIES})

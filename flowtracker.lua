@@ -26,6 +26,9 @@ ffi.cdef [[
         uint16_t port_src;
         uint8_t  proto;
     } __attribute__((__packed__));
+    
+    uint32_t ipv4_5tuple_hash(struct ipv4_5tuple* tpl);
+    uint32_t ipv6_5tuple_hash(struct ipv6_5tuple* tpl);
 
 
     typedef struct flowtracker { } flowtracker_t;
@@ -79,6 +82,25 @@ function flowtracker:get_flow_data_v4(ip_src, port_src, ip_dst, port_dst, proto)
 end
 
 ffi.metatype("flowtracker_t", flowtracker)
+
+
+-- 5 tuple hash functions
+
+local ipv4_5tuple = {}
+ipv4_5tuple.__index = ipv4_5tuple
+ffi.metatype("struct ipv4_5tuple", ipv4_5tuple)
+
+function ipv4_5tuple:hash()
+    return flowtrackerlib.ipv4_5tuple_hash(self)
+end
+
+local ipv6_5tuple = {}
+ipv6_5tuple.__index = ipv6_5tuple
+ffi.metatype("struct ipv6_5tuple", ipv6_5tuple)
+
+function ipv6_5tuple:hash()
+    return flowtrackerlib.ipv6_5tuple_hash(self)
+end
 
 
 -- rte_hash wrapper

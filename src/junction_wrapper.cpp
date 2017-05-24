@@ -18,6 +18,10 @@ extern "C" {
         junction::DefaultQSBR.update(ctx);
     }
     
+    void QSBR_destroy_context(junction::QSBR::Context ctx) {
+        junction::DefaultQSBR.destroyContext(ctx);
+    }
+    
     ConcurrentMap* concurrent_map_create() {
         return new ConcurrentMap;
     }
