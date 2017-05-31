@@ -673,6 +673,10 @@ namespace QQ {
             return enqueue_call_counter;
         }
         
+        inline size_t get_enqueue_overflow_counter() const noexcept {
+            return enqueue_overflow_counter;
+        }
+        
         inline size_t get_dequeue_counter() const noexcept {
             return dequeue_call_counter;
         }

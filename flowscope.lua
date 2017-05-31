@@ -61,12 +61,20 @@ function master(args)
 			--moon.startTask("inserter", dev:getRxQueue(i), qq)
 		end
 	end
-	local tracker = flowtracker.createHashmap(2^24, "map 0")
+	--local tracker = flowtracker.createHashmap(2^24, "map 0")
+	local pipes = {}
+	local tracker = flowtracker.createLeapfrog()
 	for i = 1, args.analyzeThreads do
-		moon.startTask("batchedAnalyzer", qq, i, tracker)
+		pipes[i] = pipe.newSlowPipe()
+-- 		moon.startTask("batchedAnalyzer", qq, i, tracker)
+		moon.startTask("leapfrogAnalyzer", qq, i, tracker, pipes[i])
 	end
 	for i = 1, 1 do
-		moon.startTask("continuousDumper", qq, i)
+		moon.startTask("continuousDumper", qq, i, "./", pipes[i])
+	end
+	
+	for i, v in ipairs(pipes) do
+		-- libmoon has no destroy function for pipes
 	end
 	
 	--moon.startSharedTask("signalTrigger")
@@ -82,16 +90,14 @@ function inserter(rxQueue, qq)
 	qq:inserterLoop(rxQueue)
 end
 
-
--- FIXME: Use libmoon packet library instead of zeroed buffer
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
-	local newFlowRate = newFlowRate or 3000
-	local rate = rate or 10
+	local newFlowRate = newFlowRate or 30 -- new flows/s
+	local rate = rate or 10 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
-	local rateLimiter = timer:new(1.0 / rate) -- buckets/s
-	local newFlowTimer = timer:new(1.0 / newFlowRate) -- new flows/s
+	local rateLimiter = timer:new(1.0 / rate)
+	local newFlowTimer = timer:new(1.0 / newFlowRate)
 	
 	local buf = {}
 	buf["ptr"] = ffi.new("uint8_t[?]", packetSize)
@@ -143,7 +149,7 @@ end
 
 function fillLevelChecker(qq)
 	while moon.running() do
-		print(green("[QQ] Stored buckets: ") .. qq:size() .. "/" .. qq:capacity())
+		print(green("[QQ] Stored buckets: ") .. qq:size() .. "/" .. qq:capacity() .. green(" Overflows: ") .. qq:getEnqueueOverflowCounter())
 		moon.sleepMillisIdle(1000)
 	end
 end
@@ -176,6 +182,75 @@ end
 
 function fooModule:done()
 	self.rxCtr:finalize()
+end
+
+function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
+	local hashmap = hashmap
+	local ctx = flowtracker.QSBRCreateContext()
+	local rxCtr = stats:newManualRxCounter("QQ Leapfrog Thread #" .. id, "plain")
+	local epsilon = 2  -- allowed area around the avrg. TLL
+	
+	-- dummy filter for testing
+	filterPipe:send("src host 10.0.0.1")
+	
+	local tuple = ffi.new("struct ipv4_5tuple")
+	
+	while moon.running() do
+		local storage = qq:peek()
+		for i = 0, storage:size() - 1 do
+-- 			print("leapfrog 0", i)
+			local pkt = storage:getPacket(i)
+			rxCtr:updateWithSize(1, pkt.len)
+			local parsedPkt = pktLib.getUdp4Packet(pkt)
+			tuple.ip_dst = parsedPkt.ip4:getDst()
+			tuple.ip_src = parsedPkt.ip4:getSrc()
+			tuple.port_dst = parsedPkt.udp:getDstPort()
+			tuple.port_src = parsedPkt.udp:getSrcPort()
+			tuple.proto = parsedPkt.ip4:getProtocol()
+
+			local hash = tuple:hash()
+-- 			print("leapfrog 1", hash)
+			local TTL = parsedPkt.ip4:getTTL()
+			
+			local res = hashmap:get(hash)
+			if res ~= 0ULL and 
+					(TTL > flowtracker.getAverageTTL(res) + epsilon or
+					TTL < flowtracker.getAverageTTL(res) - epsilon) then
+				print("Anomaly detected")
+			end
+			
+-- 			print("leapfrog 2", "TTL:", TTL, "res:", res)
+			local val = flowtracker.updateTTL(res, TTL)
+-- 			if val == 0ULL or val == 1ULL then
+-- 				print("hash can not be 0 or 1")
+-- 				moon.stop()
+-- 			end
+-- 			print("leapfrog 3", val)
+			local other = hashmap:exchange(hash, val)
+-- 			print("leapfrog 4", other)
+			
+			-- Analyze
+			
+			-- Send new filters
+			--local newFilter = "udp port 1111"
+			--filterPipe:send(newFilter)
+			
+-- 			if res == 0ULL then -- 0 = not found
+-- 				local val = flowtracker.updateTTL(0ULL, parsedPkt.ip4:getTTL())
+-- 				hashmap:set(tuple:hash(), val)
+-- 			else
+-- 				local val = flowtracker.updateTTL(res, parsedPkt.ip4:getTTL())
+-- 				hashmap:set(tuple:hash(), val)
+-- 			end
+		end
+		
+		
+		storage:release()
+		flowtracker.QSBRUpdateContext(ctx)
+	end
+	
+	rxCtr:finalize()
+	flowtracker.QSBRDestroyContext(ctx)
 end
 
 function batchedAnalyzer(qq, id, tracker)
@@ -336,15 +411,41 @@ local function clearTrigger()
 	trigger.triggered = nil
 end
 
-function continuousDumper(qq, id, path)
+function continuousDumper(qq, id, path, filterPipe)
+	local ruleSet = {}
 	local rxCtr = stats:newManualRxCounter("QQ Dumper Thread   #" .. id, "plain")
+	
+	local testFilterFn = pf.compile_filter("src host 10.0.0.1")
 	while moon.running() do
+		-- Get new filters
+		local newFilter = filterPipe:tryRecv(0)
+		if newFilter ~= nil then
+			local triggerWallTime = wallTime()
+			local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. newFilter .. ".pcap"
+			--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
+			ruleSet[newFilter] = {["pfFn"] = pf.compile_filter(newFilter), ["pcap"] = pcapWriter}
+			print("Dumper\t#" .. id .. ": Got new filter: " .. newFilter, "total", #ruleSet)
+			print("new rule", ruleSet[newFilter], ruleSet[newFilter].pfFn, ruleSet[newFilter].pcap)
+			-- TODO: handle expire etc
+		end
+		
 		local storage = qq:dequeue()
 		local size = storage:size()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
 			rxCtr:updateWithSize(1, pkt:getLength())
+			
+			if testFilterFn(pkt.data, pkt.len) then
+				
+			end
+			
+-- 			for _, rule in pairs(ruleSet) do
+-- 				if rule.pfFn(pkt.data, pkt.len) then
+-- 					print("Dumper #" .. id .. ": Got match!")
+-- 					--entry.pcap:write(timestamp, pkt.data, pkt.size)
+-- 				end
+-- 			end
 		end
 		storage:release()
 	end

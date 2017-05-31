@@ -42,3 +42,7 @@ target_link_libraries(flowtracker ${JUNCTION_ALL_LIBRARIES})
 
 SET(MINISWAP_SRC src/miniswap.cpp)
 ADD_LIBRARY(miniswap SHARED ${MINISWAP_SRC})
+
+SET(LEAPFROG_BENCH_SRC src/leapfrog_bench.cpp)
+add_executable(leapfrog_bench ${LEAPFROG_BENCH_SRC})
+target_link_libraries(leapfrog_bench ${JUNCTION_ALL_LIBRARIES} pthread)

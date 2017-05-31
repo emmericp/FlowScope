@@ -36,6 +36,8 @@ ffi.cdef [[
 	size_t qq_get_enqueue_counter(qq_t*);
 
 	size_t qq_get_dequeue_counter(qq_t*);
+    
+	size_t qq_get_enqueue_overflow_counter(qq_t*);
 
 	void qq_set_priority(qq_t* q, const uint8_t new_priority);
 
@@ -108,6 +110,10 @@ end
 
 function qq:getEnqueueCounter()
 	return tonumber(qqlib.qq_get_enqueue_counter(self))
+end
+
+function qq:getEnqueueOverflowCounter()
+	return tonumber(qqlib.qq_get_enqueue_overflow_counter(self))
 end
 
 function qq:getDequeueCounter()

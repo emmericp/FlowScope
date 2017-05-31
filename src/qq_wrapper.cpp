@@ -94,16 +94,20 @@ extern "C" {
     }
     
     size_t qq_get_enqueue_counter(QQ::QQ<bucket_size>* q) {
-		return q->get_enqueue_counter();
-	}
-	
-	size_t qq_get_dequeue_counter(QQ::QQ<bucket_size>* q) {
-		return q->get_dequeue_counter();
-	}
-	
-	void qq_set_priority(QQ::QQ<bucket_size>* q, const uint8_t new_priority) {
-		return q->set_priority(new_priority);
-	}
+        return q->get_enqueue_counter();
+    }
+    
+    size_t qq_get_dequeue_counter(QQ::QQ<bucket_size>* q) {
+        return q->get_dequeue_counter();
+    }
+    
+    size_t qq_get_enqueue_overflow_counter(QQ::QQ<bucket_size>* q) {
+        return q->get_enqueue_overflow_counter();
+    }
+    
+    void qq_set_priority(QQ::QQ<bucket_size>* q, const uint8_t new_priority) {
+        return q->set_priority(new_priority);
+    }
     
     const QQ::packet_header& qq_storage_get_packet(QQ::Ptr<bucket_size>* ptr, const size_t idx) {
         return (const QQ::packet_header&) *ptr->operator[](idx);

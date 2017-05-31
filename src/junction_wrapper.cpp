@@ -5,10 +5,14 @@
 
 #include <cstdint>
 
+
 extern "C" {
     using Key = std::uint32_t;
     using Value = std::uint64_t;
+    //using Value = flowtracker::ttl_flow_data*;
     using ConcurrentMap = junction::ConcurrentMap_Leapfrog<Key, Value>;
+    
+    static_assert(std::is_same<junction::QSBR::Context, std::uint16_t>::value, "QSBR::Context typedef changed, rewrite the wrapper");
     
     junction::QSBR::Context QSBR_create_context() {
         return junction::DefaultQSBR.createContext();
@@ -30,12 +34,17 @@ extern "C" {
         delete map;
     }
     
+    /* Low-level functions */
     Value concurrent_map_get(ConcurrentMap* map, Key key) {
         return map->get(key);
     }
     
-    void concurrent_map_set(ConcurrentMap* map, Key key, Value val) {
-        map->assign(key, val);
+    Value concurrent_map_exchange(ConcurrentMap* map, Key key, Value val) {
+        return map->exchange(key, val);
+    }
+    
+    Value concurrent_map_erase(ConcurrentMap* map, Key key) {
+        return map->erase(key);
     }
     
 }
