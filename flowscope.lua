@@ -84,7 +84,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
 	local concurrentFlows = 1
-	local rate = rate or 1000000 -- buckets/s
+	local rate = rate or 10 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
 	local rateLimiter = timer:new(1.0 / rate)
@@ -107,7 +107,11 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		local ts = moon.getTime()
 		repeat
 -- 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows))
-			pkt.ip4:setTTL(64 + math.random(0, 6))
+			if math.random(0, 1000000) == 123456 then
+				pkt.ip4:setTTL(70)
+			else
+				pkt.ip4:setTTL(64)
+			end
 		until not s1:store(ts, 0, packetSize, buf.ptr)
 		txCtr:updateWithSize(s1:size(), packetSize)
 		s1:release()
@@ -323,6 +327,11 @@ function dummyAnalyzer(qq, id)
 end
 
 function batched_flowtracker_Analyzer(qq, id, tracker, pipes)
+	for i, pipe in ipairs(pipes) do
+		print("Analyzer", pipe)
+		pipes[i]:send("hello")
+	end
+	
 	print("got", #pipes, "pipes")
 	local epsilon = 2
 	local batchsize = 64
@@ -507,16 +516,24 @@ function continuousDumper(qq, id, path, filterPipe)
 -- 	local testFilterFn = pf.compile_filter("src host 10.0.0.1")
 	while moon.running() do
 		-- Get new filters
--- 		local newFilter = filterPipe:tryRecv(0)
--- 		if newFilter ~= nil then
--- 			local triggerWallTime = wallTime()
--- 			local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. newFilter .. ".pcap"
--- 			--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
--- 			ruleSet[newFilter] = {["pfFn"] = pf.compile_filter(newFilter), ["pcap"] = pcapWriter}
--- 			print("Dumper\t#" .. id .. ": Got new filter: " .. newFilter, "total", #ruleSet)
--- 			print("new rule", ruleSet[newFilter], ruleSet[newFilter].pfFn, ruleSet[newFilter].pcap)
--- 			-- TODO: handle expire etc
--- 		end
+		local event = filterPipe:tryRecv(0)
+		if event ~= nil then
+			if event.action == "create" then
+				local triggerWallTime = wallTime()
+				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
+				--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
+				ruleSet[#ruleSet+1] = {pfFn = nil, pcap = pcapWriter, filter = event.filter}
+				--ruleSet[#ruleSet] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter, filter = event.filter}
+				print("Dumper #" .. id .. ": new rule", ruleSet[#ruleSet], ruleSet[#ruleSet].pfFn, ruleSet[#ruleSet].pcap, ruleSet[#ruleSet].filter)
+			elseif event.action == "delete" then
+				-- TODO: handle expire etc
+				for i, rule in ipairs(ruleset) do
+					if rule.filter == event.filter then
+						table.remove(ruleSet, i)
+					end
+				end
+			end
+		end
 		
 		local storage = qq:dequeue()
 		local size = storage:size()
