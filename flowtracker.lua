@@ -11,6 +11,11 @@ ffi.cdef [[
         uint8_t observed_ttl;
     } __attribute__((__packed__));
     
+    struct ttl_flow_data {
+        uint64_t rolling_sum;
+        uint64_t packet_counter;
+    } __attribute__((__packed__));
+    
     struct ipv4_5tuple {
         uint32_t ip_dst;
         uint32_t ip_src;
@@ -29,21 +34,17 @@ ffi.cdef [[
     
     uint32_t ipv4_5tuple_hash(struct ipv4_5tuple* tpl);
     uint32_t ipv6_5tuple_hash(struct ipv6_5tuple* tpl);
+    
+    typedef struct ttl_flow_data D;
 
-
+    /* Flowtracker wrapper */
     typedef struct flowtracker { } flowtracker_t;
-
     flowtracker_t* flowtracker_create(uint32_t max_flows);
-
     void flowtracker_delete(flowtracker_t* tr);
-    
-    int32_t flowtracker_add_flow_v4(flowtracker_t* tr, uint32_t ip_src, uint16_t port_src,
-        uint32_t ip_dst, uint16_t port_dst, uint8_t proto,
-        const struct foo_flow_data* flow_data);
-    
-    struct foo_flow_data* flowtracker_get_flow_data_v4(flowtracker_t* tr, uint32_t ip_src, uint16_t port_src,
-        uint32_t ip_dst, uint16_t port_dst, uint8_t proto);
-        
+    int32_t flowtracker_add_flow_v4(flowtracker_t*, const struct ipv4_5tuple* const, const D*);
+    D* flowtracker_get_flow_data_v4(flowtracker_t* tr, uint32_t ip_src, uint16_t port_src, uint32_t ip_dst, uint16_t port_dst, uint8_t proto);
+    int flowtracker_get_flow_data_bulk_v4(flowtracker_t* tr, const void* keys[], uint32_t num_keys, D* data[]);
+
     /* rte_hash wrapper */
     struct rte_hash { };
     struct rte_hash* rte_hash_create_v4(uint32_t max_flows, const char* name);
@@ -92,12 +93,16 @@ function flowtracker:delete()
     flowtrackerlib.flowtracker_delete(self)
 end
 
-function flowtracker:add_flow_v4(ip_src, port_src, ip_dst, port_dst, proto, flow_data)
-    return flowtrackerlib.flowtracker_add_flow_v4(self, ip_src, port_src, ip_dst, port_dst, proto, flow_data)
+function flowtracker:addFlow4(tuple, flow_data)
+    return flowtrackerlib.flowtracker_add_flow_v4(self, tuple, flow_data)
 end
 
 function flowtracker:get_flow_data_v4(ip_src, port_src, ip_dst, port_dst, proto)
     return flowtrackerlib.flowtracker_get_flow_data_v4(self, ip_src, port_src, ip_dst, port_dst, proto)
+end
+
+function flowtracker:lookupBatch4(keys, numKeys, data)
+    return flowtrackerlib.flowtracker_get_flow_data_bulk_v4(self, keys, numKeys, data)
 end
 
 ffi.metatype("flowtracker_t", flowtracker)

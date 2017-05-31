@@ -19,6 +19,7 @@ template<typename T> using alloc = std::scoped_allocator_adaptor<rte_allocator<T
 
 namespace flowtracker {
     constexpr std::size_t batch_size = 64;
+    static_assert(batch_size <= RTE_HASH_LOOKUP_BULK_MAX, "batch size too large");
     
     template<typename T>
     struct flowtracker {
@@ -79,9 +80,19 @@ namespace flowtracker {
             return &this->ipv6_flowdata[ret];
         }
         
-        // FIXME: return flowdata, not lookup results
-        int get_flow_data_bulk(const ipv4_5tuple** keys, std::uint32_t num_keys, std::int32_t* positions) {
-            return rte_hash_lookup_bulk(this->ipv4_map, reinterpret_cast<const void**>(keys), num_keys, positions);
+        int get_flow_data_bulk(const void* keys[], std::uint32_t num_keys, T* data[]) {
+            std::int32_t positions[num_keys] = {};
+            int ret = rte_hash_lookup_bulk(this->ipv4_map, reinterpret_cast<const void**>(keys), num_keys, positions);
+            if (ret != 0) {
+                return ret;
+            }
+            for (std::uint32_t i = 0; i < num_keys; ++i) {
+                if (positions[i] > 0)
+                    data[i] = &this->ipv4_flowdata[positions[i]];
+                else
+                    data[i] = NULL;
+            }
+            return 0;
         }
         
         // FIXME: return flowdata, not lookup results
@@ -124,7 +135,12 @@ extern "C" {
         std::uint8_t observed_ttl;
     } __attribute__((__packed__));
     
-    using D = foo_flow_data;
+    struct ttl_flow_data {
+        std::uint64_t rolling_sum;
+        std::uint64_t packet_counter;
+    } __attribute__((__packed__));
+    
+    using D = ttl_flow_data;
     using tracker = flowtracker::flowtracker<D>;
     using v4tpl = flowtracker::ipv4_5tuple;
     using v6tpl = flowtracker::ipv6_5tuple;
@@ -179,17 +195,16 @@ extern "C" {
         return tr->remove_flow(*tpl);
     }
     
-    foo_flow_data* flowtracker_get_flow_data_v4(tracker* tr, const v4tpl* const tpl) {
+    D* flowtracker_get_flow_data_v4(tracker* tr, const v4tpl* const tpl) {
         return tr->get_flow_data(*tpl);
     }
     
-    
-    foo_flow_data* flowtracker_get_flow_data_v6(tracker* tr, const v6tpl* const tpl) {
+    D* flowtracker_get_flow_data_v6(tracker* tr, const v6tpl* const tpl) {
         return tr->get_flow_data(*tpl);
     }
     
-    int flowtracker_get_flow_data_bulk_v4(tracker* tr, const v4tpl** const keys, std::uint32_t num_keys, std::int32_t* positions) {
-        return tr->get_flow_data_bulk(keys, num_keys, positions);
+    int flowtracker_get_flow_data_bulk_v4(tracker* tr, const void* keys[], std::uint32_t num_keys, D* data[]) {
+        return tr->get_flow_data_bulk(keys, num_keys, data);
     }
     
     void analyze(tracker* tr, const packet_header* const pkt_hdr);
@@ -199,7 +214,7 @@ extern "C" {
     void analyze_v6(tracker* tr, std::uint64_t ts, const flowtracker::ipv6_5tuple* const tpl, const std::uint8_t ttl);
     
     
-    /* rte_hash wrapper */
+    /* low-level rte_hash wrapper */
     
     struct rte_hash* rte_hash_create_v4(std::uint32_t max_flows, const char* name) {
         rte_hash_parameters params = {};

@@ -602,10 +602,12 @@ namespace QQ {
         Ptr<pages_per_bucket> peek(const uint8_t call_priority = 1) {
             Storage<pages_per_bucket * huge_page_size>* s = nullptr;
             std::unique_lock<std::mutex> lk(mutex_);
+            if (distance(peek_pos, head) > num_buckets / 2) {
+                peek_pos = wrap(peek_pos + 16);
 #ifndef NDEBUG
-            if (distance(peek_pos, head) > num_buckets / 2)
                 std::cerr << "[QQ::peek()]: peek pointer is lacking more than 50% behind head!" << std::endl;
 #endif
+            }
             //cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); });
             non_empty.wait(lk, [&] { return distance(peek_pos, head) > 8; });
             s = storage_in_use.at(peek_pos);

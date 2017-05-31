@@ -21,24 +21,9 @@ function configure(parser)
 	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB."):convert(tonumber):default("8")
 	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default("1"):target("rxThreads")
 	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default("1"):target("analyzeThreads")
-	parser:option("--dump-past", "Time to dump before the trigger point in seconds. (default: as far back as possible)"):convert(tonumber):default(math.huge):target("dumpPast")
-	parser:option("--dump-future", "Time to dump after the trigger point in seconds."):convert(tonumber):default("10"):target("dumpFuture")
+	parser:option("--dumper-threads", "Number of dumper threads."):convert(tonumber):default("1"):target("dumperThreads")
 	parser:option("--path", "Path for output pcaps."):default(".")
-	parser:mutex(
-		parser:option("--trigger-expr", "pcap filter for trigger packets."):target("triggerExpr"),
-		parser:option("--trigger-code", "Lua file returning a filter function (see filter-examples/trigger-*.lua)."):target("triggerCode")
-	)
-	parser:mutex(
-		parser:option("--dumper-expr", "pcap filter for dumping packets. Use $srcIP $dstIP $srcPort $dstPort $proto to refer to the packet that triggered the dumper."):target("dumperExpr"),
-		parser:option("--dumper-code", "Lua file returning a function that builds a filter function from the trigger packet (see filter-examples/dumper-*.lua)."):target("dumperCode")
-	)
 	local args = parser:parse()
-	if not args.triggerExpr and not args.triggerCode then
-		parser:error("either --trigger-expr or --trigger-code must be specified")
-	end
-	if not args.dumperExpr and not args.dumperCode then
-		parser:error("either --dumper-expr or --dumper-code must be specified")
-	end
 	return args
 end
 
@@ -61,16 +46,21 @@ function master(args)
 			--moon.startTask("inserter", dev:getRxQueue(i), qq)
 		end
 	end
-	--local tracker = flowtracker.createHashmap(2^24, "map 0")
+	
 	local pipes = {}
-	local tracker = flowtracker.createLeapfrog()
-	for i = 1, args.analyzeThreads do
+	for i = 1, args.dumperThreads do
 		pipes[i] = pipe.newSlowPipe()
--- 		moon.startTask("batchedAnalyzer", qq, i, tracker)
-		moon.startTask("leapfrogAnalyzer", qq, i, tracker, pipes[i])
-	end
-	for i = 1, 1 do
 		moon.startTask("continuousDumper", qq, i, "./", pipes[i])
+	end
+	
+-- 	local tracker = flowtracker.createHashmap(2^24, "map 0")
+	local tracker = flowtracker.createFlowtracker(2^24, "map 0")
+-- 	local tracker = flowtracker.createLeapfrog()
+	for i = 1, args.analyzeThreads do
+-- 		moon.startTask("batched_rte_hash_Analyzer", qq, i, tracker, pipes)
+		moon.startTask("batched_flowtracker_Analyzer", qq, i, tracker, pipes)
+-- 		moon.startTask("dummyAnalyzer", qq, i)
+-- 		moon.startTask("leapfrogAnalyzer", qq, i, tracker, pipes[i])
 	end
 	
 	for i, v in ipairs(pipes) do
@@ -92,8 +82,9 @@ end
 
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
-	local newFlowRate = newFlowRate or 30 -- new flows/s
-	local rate = rate or 10 -- buckets/s
+	local newFlowRate = newFlowRate or 0.5 -- new flows/s
+	local concurrentFlows = 1
+	local rate = rate or 1000000 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
 	local rateLimiter = timer:new(1.0 / rate)
@@ -115,12 +106,13 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		local s1 = qq:enqueue()
 		local ts = moon.getTime()
 		repeat
-			pkt.ip4.dst:set(baseIP + math.random(0, 2^8))
+-- 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows))
+			pkt.ip4:setTTL(64 + math.random(0, 6))
 		until not s1:store(ts, 0, packetSize, buf.ptr)
 		txCtr:updateWithSize(s1:size(), packetSize)
 		s1:release()
 		if newFlowTimer:expired() then
-			baseIP = baseIP + 1
+-- 			baseIP = baseIP + 1
 			newFlowTimer:reset()
 		end
 		rateLimiter:wait()
@@ -182,6 +174,16 @@ end
 
 function fooModule:done()
 	self.rxCtr:finalize()
+end
+
+-- TODO
+function buildFilterExpr(tpl)
+-- 	local srcIP = ip.ip4Addr
+-- 	srcIP:set(tpl.ip_src)
+-- 	local dstIP = ip.ip4Addr
+-- 	dstIP:set(tpl.ip_dst)
+	return "src host " .. tonumber(tpl.ip_src) ..
+			" dst host " .. tonumber(tpl.ip_dst)
 end
 
 function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
@@ -253,7 +255,7 @@ function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
 	flowtracker.QSBRDestroyContext(ctx)
 end
 
-function batchedAnalyzer(qq, id, tracker)
+function batched_rte_hash_Analyzer(qq, id, tracker, pipes)
 	local batchsize = 64
 	local addCtr = 0
 	local flowdata = ffi.new("struct foo_flow_data")
@@ -305,6 +307,93 @@ function batchedAnalyzer(qq, id, tracker)
 	end
 	rxCtr:finalize()
 	print("[QQ Analyzer] Added flows:", addCtr)
+end
+
+function dummyAnalyzer(qq, id)
+	local rxCtr = stats:newManualRxCounter("QQ Dummy Analyzer Thread #" .. id, "plain")
+	while moon.running() do
+		local storage = qq:peek()
+		for i = 0, storage:size() - 1 do
+			local pkt = storage:getPacket(i)
+			rxCtr:updateWithSize(1, pkt.len)
+		end
+		storage:release()
+	end
+	rxCtr:finalize()
+end
+
+function batched_flowtracker_Analyzer(qq, id, tracker, pipes)
+	print("got", #pipes, "pipes")
+	local epsilon = 2
+	local batchsize = 64
+	local addCtr = 0
+	local flowdata = ffi.new("D") -- Reuse for every packet, the hash table copies it anyway
+	flowdata.rolling_sum = 0
+	flowdata.packet_counter = 1 -- Wrong, but atleast not a div by zero
+	local tupleBatch = ffi.new("struct ipv4_5tuple[?]", batchsize)
+	local keyPtr = ffi.new("const void *[?]", batchsize) -- needed for DPDK bulk lookup, cf. "bulk lookup explained.svg"
+	for i = 0, batchsize do
+		keyPtr[i] = tupleBatch + i
+	end
+	local dataPtrs = ffi.new("D* [?]", batchsize)
+	local positionsBatch = ffi.new("int32_t[?]", batchsize)
+	local rxCtr = stats:newManualRxCounter("QQ Analyzer Thread #" .. id, "plain")
+	while moon.running() do
+		local storage = qq:peek()
+		
+		-- TODO handle uneven batch sizes
+		for i = 0, storage:size() - 1 - batchsize, batchsize do
+			local TTLs = {}
+			for j = 0, batchsize - 1 do
+				local pkt = storage:getPacket(i + j)
+				rxCtr:updateWithSize(1, pkt.len)
+				local parsedPkt = pktLib.getUdp4Packet(pkt)
+				tupleBatch[j].ip_dst = parsedPkt.ip4:getDst()
+				tupleBatch[j].ip_src = parsedPkt.ip4:getSrc()
+				tupleBatch[j].port_dst = parsedPkt.udp:getDstPort()
+				tupleBatch[j].port_src = parsedPkt.udp:getSrcPort()
+				tupleBatch[j].proto = parsedPkt.ip4:getProtocol()
+				TTLs[j] = parsedPkt.ip4:getTTL()
+			end
+			
+			::try_again::
+			local r = tracker:lookupBatch4(keyPtr, batchsize, dataPtrs)
+			if r < 0 then
+				print("Batch lookup failed")
+				break
+			end
+			
+			for j = 0, batchsize - 1 do
+				if dataPtrs[j] == nil then
+					flowdata.rolling_sum = TTLs[j]  -- Set inital TTL
+					local r = tracker:addFlow4(tupleBatch[j], flowdata)
+					print("New flow!", tupleBatch[j].ip_dst, tupleBatch[j].port_dst, tupleBatch[j].ip_src, tupleBatch[j].port_src)
+					if r < 0 then
+						print(id, "Add error:", r, "inserted items:", addCtr)
+						moon:stop()
+					end
+					addCtr = addCtr + 1
+					goto try_again -- This is crucial. If a new flow got added, the batch is worthless since it could contain multiple packets of the flow that just got added
+				else
+					local avrgTTL = dataPtrs[j].rolling_sum / dataPtrs[j].packet_counter
+					if (TTLs[j] > avrgTTL + epsilon or
+							TTLs[j] < avrgTTL - epsilon) then
+						local event = {action = "create", filter = buildFilterExpr(tupleBatch[j])}
+						print("Anomaly detected", dataPtrs[j].rolling_sum, dataPtrs[j].packet_counter, avrgTTL, TTLs[j], event.action, event.filter)
+						for _, pipe in ipairs(pipes) do
+							pipe:send(event)
+						end
+					end
+					-- FIXME: make atomic
+					dataPtrs[j].rolling_sum = dataPtrs[j].rolling_sum + TTLs[j]
+					dataPtrs[j].packet_counter = dataPtrs[j].packet_counter + 1
+				end
+			end
+		end
+		storage:release()
+	end
+	rxCtr:finalize()
+	print("[QQ Analyzer #" .. id .. "] Added flows:", addCtr)
 end
 
 function analyzer(qq, id, tracker)
@@ -415,19 +504,19 @@ function continuousDumper(qq, id, path, filterPipe)
 	local ruleSet = {}
 	local rxCtr = stats:newManualRxCounter("QQ Dumper Thread   #" .. id, "plain")
 	
-	local testFilterFn = pf.compile_filter("src host 10.0.0.1")
+-- 	local testFilterFn = pf.compile_filter("src host 10.0.0.1")
 	while moon.running() do
 		-- Get new filters
-		local newFilter = filterPipe:tryRecv(0)
-		if newFilter ~= nil then
-			local triggerWallTime = wallTime()
-			local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. newFilter .. ".pcap"
-			--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
-			ruleSet[newFilter] = {["pfFn"] = pf.compile_filter(newFilter), ["pcap"] = pcapWriter}
-			print("Dumper\t#" .. id .. ": Got new filter: " .. newFilter, "total", #ruleSet)
-			print("new rule", ruleSet[newFilter], ruleSet[newFilter].pfFn, ruleSet[newFilter].pcap)
-			-- TODO: handle expire etc
-		end
+-- 		local newFilter = filterPipe:tryRecv(0)
+-- 		if newFilter ~= nil then
+-- 			local triggerWallTime = wallTime()
+-- 			local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. newFilter .. ".pcap"
+-- 			--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
+-- 			ruleSet[newFilter] = {["pfFn"] = pf.compile_filter(newFilter), ["pcap"] = pcapWriter}
+-- 			print("Dumper\t#" .. id .. ": Got new filter: " .. newFilter, "total", #ruleSet)
+-- 			print("new rule", ruleSet[newFilter], ruleSet[newFilter].pfFn, ruleSet[newFilter].pcap)
+-- 			-- TODO: handle expire etc
+-- 		end
 		
 		local storage = qq:dequeue()
 		local size = storage:size()
@@ -436,9 +525,9 @@ function continuousDumper(qq, id, path, filterPipe)
 			local timestamp = pkt:getTimestamp()
 			rxCtr:updateWithSize(1, pkt:getLength())
 			
-			if testFilterFn(pkt.data, pkt.len) then
-				
-			end
+-- 			if testFilterFn(pkt.data, pkt.len) then
+-- 				
+-- 			end
 			
 -- 			for _, rule in pairs(ruleSet) do
 -- 				if rule.pfFn(pkt.data, pkt.len) then
