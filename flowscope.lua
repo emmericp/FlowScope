@@ -19,10 +19,12 @@ local flowtracker = require "flowtracker"
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
 	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB."):convert(tonumber):default("8")
-	parser:option("--rx-threads", "Number of rx threads per device."):convert(tonumber):default("1"):target("rxThreads")
+	parser:option("--rate", "Rate of the generated traffic in buckets/s."):convert(tonumber):default("10")
+	parser:option("--rx-threads", "Number of rx threads per device. If --generate is give, then number of traffic generator threads."):convert(tonumber):default("1"):target("rxThreads")
 	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default("1"):target("analyzeThreads")
-	parser:option("--dumper-threads", "Number of dumper threads."):convert(tonumber):default("1"):target("dumperThreads")
+	parser:option("--dump-threads", "Number of dump threads."):convert(tonumber):default("1"):target("dumperThreads")
 	parser:option("--path", "Path for output pcaps."):default(".")
+	parser:flag("--generate", "Generate traffic instead of reading from a device"):default(False)
 	local args = parser:parse()
 	return args
 end
@@ -30,27 +32,32 @@ end
 local trigger = ns.get()
 
 function master(args)
--- 	for i, dev in ipairs(args.dev) do
--- 		args.dev[i] = device.config{
--- 			port = dev,
--- 			rxQueues = args.rxThreads,
--- 			rssQueues = args.rxThreads
--- 		}
--- 	end
--- 	device.waitForLinks()
+	if not args.generate then
+		for i, dev in ipairs(args.dev) do
+			args.dev[i] = device.config{
+				port = dev,
+				rxQueues = args.rxThreads,
+				rssQueues = args.rxThreads
+			}
+		end
+		device.waitForLinks()
+	end
 	
 	local qq = qq.createQQ(args.size)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
-			moon.startTask("traffic_generator", qq, i)
-			--moon.startTask("inserter", dev:getRxQueue(i), qq)
+			if args.generate then
+				moon.startTask("traffic_generator", qq, i, nil, 0.00001, args.rate)
+			else
+				moon.startTask("inserter", dev:getRxQueue(i), qq)
+			end
 		end
 	end
 	
 	local pipes = {}
 	for i = 1, args.dumperThreads do
 		pipes[i] = pipe.newSlowPipe()
-		moon.startTask("continuousDumper", qq, i, "./", pipes[i])
+		moon.startTask("continuousDumper", qq, i, "./dumps", pipes[i])
 	end
 	
 -- 	local tracker = flowtracker.createHashmap(2^24, "map 0")
@@ -84,7 +91,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
 	local concurrentFlows = 1
-	local rate = rate or 10 -- buckets/s
+	local rate = rate or 20 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
 	local rateLimiter = timer:new(1.0 / rate)
@@ -98,6 +105,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	pkt.ip4.src:set(baseIP - 1)
 	pkt.ip4.dst:set(baseIP)
 	pkt.ip4:setProtocol(ip.PROTO_UDP)
+	pkt.ip4:setTTL(64)
 	pkt.udp:setSrcPort(1000)
 	pkt.udp:setDstPort(2000)
 	pkt:dump()
@@ -106,8 +114,9 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		local s1 = qq:enqueue()
 		local ts = moon.getTime()
 		repeat
--- 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows))
-			if math.random(0, 1000000) == 123456 then
+-- 			pkt.ip4.dst:set(baseIP)
+			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows))
+			if math.random(0, 10000000) == 0 then
 				pkt.ip4:setTTL(70)
 			else
 				pkt.ip4:setTTL(64)
@@ -181,13 +190,9 @@ function fooModule:done()
 end
 
 -- TODO
-function buildFilterExpr(tpl)
--- 	local srcIP = ip.ip4Addr
--- 	srcIP:set(tpl.ip_src)
--- 	local dstIP = ip.ip4Addr
--- 	dstIP:set(tpl.ip_dst)
-	return "src host " .. tonumber(tpl.ip_src) ..
-			" dst host " .. tonumber(tpl.ip_dst)
+function buildFilterExpr(pkt)
+	return "src host " .. pkt.ip4.src:getString() .. " src port " .. pkt.udp:getSrcPort() .. 
+			" dst host " .. pkt.ip4.dst:getString() .. " dst port " .. pkt.udp:getDstPort()
 end
 
 function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
@@ -329,7 +334,6 @@ end
 function batched_flowtracker_Analyzer(qq, id, tracker, pipes)
 	for i, pipe in ipairs(pipes) do
 		print("Analyzer", pipe)
-		pipes[i]:send("hello")
 	end
 	
 	print("got", #pipes, "pipes")
@@ -376,19 +380,20 @@ function batched_flowtracker_Analyzer(qq, id, tracker, pipes)
 				if dataPtrs[j] == nil then
 					flowdata.rolling_sum = TTLs[j]  -- Set inital TTL
 					local r = tracker:addFlow4(tupleBatch[j], flowdata)
-					print("New flow!", tupleBatch[j].ip_dst, tupleBatch[j].port_dst, tupleBatch[j].ip_src, tupleBatch[j].port_src)
 					if r < 0 then
 						print(id, "Add error:", r, "inserted items:", addCtr)
 						moon:stop()
 					end
+					print(bred("[QQ Analyzer Thread #".. id .."]") .. ": New flow!", tupleBatch[j].ip_dst, tupleBatch[j].port_dst, tupleBatch[j].ip_src, tupleBatch[j].port_src)
 					addCtr = addCtr + 1
 					goto try_again -- This is crucial. If a new flow got added, the batch is worthless since it could contain multiple packets of the flow that just got added
 				else
 					local avrgTTL = dataPtrs[j].rolling_sum / dataPtrs[j].packet_counter
 					if (TTLs[j] > avrgTTL + epsilon or
 							TTLs[j] < avrgTTL - epsilon) then
-						local event = {action = "create", filter = buildFilterExpr(tupleBatch[j])}
-						print("Anomaly detected", dataPtrs[j].rolling_sum, dataPtrs[j].packet_counter, avrgTTL, TTLs[j], event.action, event.filter)
+						local parsedPkt = pktLib.getUdp4Packet(storage:getPacket(i + j))
+						local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
+						print(bred("[QQ Analyzer Thread #".. id .."]") .. ": Anomaly detected", dataPtrs[j].rolling_sum, dataPtrs[j].packet_counter, avrgTTL, TTLs[j], event.action, event.filter)
 						for _, pipe in ipairs(pipes) do
 							pipe:send(event)
 						end
@@ -510,52 +515,71 @@ local function clearTrigger()
 end
 
 function continuousDumper(qq, id, path, filterPipe)
-	local ruleSet = {}
+	local ruleSet = {} -- Used to maintain the rules
+	local ruleList = {} -- Build from the ruleSet for performance
 	local rxCtr = stats:newManualRxCounter("QQ Dumper Thread   #" .. id, "plain")
+	local ruleExpirationTimer = timer:new(30)
 	
--- 	local testFilterFn = pf.compile_filter("src host 10.0.0.1")
 	while moon.running() do
+-- 		if ruleExpirationTimer:expired() then
+-- 			print("Filter rules expired")
+-- 			for _, rule in ipairs(ruleList) do
+-- 				if rule.pcap then
+-- 					rule.pcap:close()
+-- 				end
+-- 			end
+-- 			ruleExpirationTimer:reset()
+-- 		end
+		
 		-- Get new filters
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
 			if event.action == "create" then
-				local triggerWallTime = wallTime()
-				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
-				--local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
-				ruleSet[#ruleSet+1] = {pfFn = nil, pcap = pcapWriter, filter = event.filter}
-				--ruleSet[#ruleSet] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter, filter = event.filter}
-				print("Dumper #" .. id .. ": new rule", ruleSet[#ruleSet], ruleSet[#ruleSet].pfFn, ruleSet[#ruleSet].pcap, ruleSet[#ruleSet].filter)
+				ruleSet[event.filter] = {}
+-- 				print("Dumper #" .. id .. ": new rule", ruleSet[#ruleSet], ruleSet[#ruleSet].pfFn, ruleSet[#ruleSet].pcap, ruleSet[#ruleSet].filter)
 			elseif event.action == "delete" then
 				-- TODO: handle expire etc
-				for i, rule in ipairs(ruleset) do
-					if rule.filter == event.filter then
-						table.remove(ruleSet, i)
-					end
-				end
+				ruleSet[event.filter] = nil
 			end
+			
+			-- Update ruleList
+			ruleList = {}
+			for expr, _ in pairs(ruleSet) do
+				local triggerWallTime = wallTime()
+				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
+				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
+				ruleList[#ruleList+1] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
+-- 				ruleList[#ruleList+1] = {pfFn = function() end, pcap = nil}
+			end
+			print("Dumper #" .. id .. ": total number of rules:", #ruleList)
 		end
 		
 		local storage = qq:dequeue()
-		local size = storage:size()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
 			rxCtr:updateWithSize(1, pkt:getLength())
 			
--- 			if testFilterFn(pkt.data, pkt.len) then
--- 				
--- 			end
-			
--- 			for _, rule in pairs(ruleSet) do
--- 				if rule.pfFn(pkt.data, pkt.len) then
--- 					print("Dumper #" .. id .. ": Got match!")
--- 					--entry.pcap:write(timestamp, pkt.data, pkt.size)
--- 				end
--- 			end
+			-- ipairs: 20 Mpps
+			-- pairs: 1.6 Mpps
+			-- WTF??
+			for _, rule in ipairs(ruleList) do
+				if rule.pfFn(pkt.data, pkt.len) then
+-- 						print("Dumper #" .. id .. ": Got match!")
+						if rule.pcap then
+							rule.pcap:write(timestamp, pkt.data, pkt.len)
+						end
+				end
+			end
 		end
 		storage:release()
 	end
 	rxCtr:finalize()
+	for _, rule in ipairs(ruleList) do
+		if rule.pcap then
+			rule.pcap:close()
+		end
+	end
 end
 
 function dumper(qq, path, dumpPast, dumpFuture, expr, code)
