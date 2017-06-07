@@ -81,7 +81,7 @@ namespace flowtracker {
         }
         
         int get_flow_data_bulk(const void* keys[], std::uint32_t num_keys, T* data[]) {
-            std::int32_t positions[num_keys] = {};
+            std::int32_t positions[batch_size] = {};
             int ret = rte_hash_lookup_bulk(this->ipv4_map, reinterpret_cast<const void**>(keys), num_keys, positions);
             if (ret != 0) {
                 return ret;
