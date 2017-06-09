@@ -9,6 +9,10 @@ SET(CMAKE_C_FLAGS "-fno-stack-protector -Wall -Wextra -Wno-unused-parameter -Wno
 
 SET(PRJ qq)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/tbb/cmake/TBBBuild.cmake)
+tbb_build(TBB_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/tbb CONFIG_DIR TBB_DIR)
+find_package(TBB)
+
 SET(QQ_SRC src/qq_wrapper.cpp)
 
 SET(LIBMOON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libmoon)
