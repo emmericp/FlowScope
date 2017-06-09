@@ -12,8 +12,8 @@ ffi.cdef [[
     } __attribute__((__packed__));
     
     struct ttl_flow_data {
-        uint64_t rolling_sum;
-        uint64_t packet_counter;
+        uint64_t running_sum;  // Sum of all seen TTL values
+        uint64_t packets;      // Number of observed TTL values
     } __attribute__((__packed__));
     
     struct ipv4_5tuple {
@@ -57,6 +57,17 @@ ffi.cdef [[
     /* TTL helpers */
     uint16_t get_average_TTL(uint64_t val);
     uint64_t update_TTL(uint64_t val, uint16_t new_ttl);
+    
+    /* TBB wrapper */
+    typedef struct ttl_flow_data D;
+    typedef struct tbb_map_v4 tbb_map_v4;
+    typedef struct ttl_flow_data D;
+    tbb_map_v4* tbb_map_create_v4(size_t pre_alloc);
+    void tbb_map_delete_v4(tbb_map_v4* map);
+    void tbb_map_clear_v4(tbb_map_v4* map);
+    const D* tbb_map_get_v4(tbb_map_v4* map, const struct ipv4_5tuple* tpl);
+    bool tbb_map_exists_v4(tbb_map_v4* map, const struct ipv4_5tuple* tpl);
+    uint16_t tbb_map_check_and_update_ttl_v4(tbb_map_v4* map, const struct ipv4_5tuple* tpl, const uint16_t ttl, const uint16_t epsilon);
 ]]
 
 local C = ffi.C
@@ -146,6 +157,28 @@ end
 
 function mod.updateTTL(val, ttl)
     return flowtrackerlib.update_TTL(val, ttl)
+end
+
+
+-- TBB wrapper
+function mod.createTBBMapv4(preAlloc)
+    return flowtrackerlib.tbb_map_create_v4(preAlloc)
+end
+
+local tbb4 = {}
+tbb4.__index = tbb4
+ffi.metatype("struct tbb_map_v4", tbb4)
+
+function tbb4:delete()
+    flowtrackerlib.tbb_map_delete_v4(self)
+end
+
+function tbb4:checkAndUpdate(v4Tuple, ttl, epsilon)
+    return flowtrackerlib.tbb_map_check_and_update_ttl_v4(self, v4Tuple, ttl, epsilon)
+end
+
+function tbb4:get(v4Tuple)
+    return flowtrackerlib.tbb_map_get_v4(self, v4Tuple)
 end
 
 return mod

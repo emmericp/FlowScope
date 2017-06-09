@@ -36,8 +36,10 @@ SET(FLOWTRACKER_SRC
     src/rte_allocator.hpp
     src/tuple.hpp
     src/tuple.cpp
+    src/tbb_wrapper.cpp
 )
 ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
+TARGET_LINK_LIBRARIES(flowtracker ${TBB_IMPORTED_TARGETS})
 
 SET(MINISWAP_SRC src/miniswap.cpp)
 ADD_LIBRARY(miniswap SHARED ${MINISWAP_SRC})

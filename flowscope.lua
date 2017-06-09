@@ -47,7 +47,7 @@ function master(args)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
 			if args.generate then
-				moon.startTask("traffic_generator", qq, i, nil, 0.00001, args.rate)
+				moon.startTask("traffic_generator", qq, i, nil, 0.000001, args.rate)
 			else
 				moon.startTask("inserter", dev:getRxQueue(i), qq)
 			end
@@ -61,13 +61,13 @@ function master(args)
 	end
 	
 -- 	local tracker = flowtracker.createHashmap(2^24, "map 0")
-	local tracker = flowtracker.createFlowtracker(2^24, "map 0")
--- 	local tracker = flowtracker.createLeapfrog()
+-- 	local tracker = flowtracker.createFlowtracker(2^24, "map 0")
+	local tracker = flowtracker.createTBBMapv4(2^20)
 	for i = 1, args.analyzeThreads do
 -- 		moon.startTask("batched_rte_hash_Analyzer", qq, i, tracker, pipes)
-		moon.startTask("batched_flowtracker_Analyzer", qq, i, tracker, pipes)
+-- 		moon.startTask("batched_flowtracker_Analyzer", qq, i, tracker, pipes)
 -- 		moon.startTask("dummyAnalyzer", qq, i)
--- 		moon.startTask("leapfrogAnalyzer", qq, i, tracker, pipes[i])
+		moon.startTask("TBBAnalyzer", qq, i, tracker, pipes)
 	end
 	
 	for i, v in ipairs(pipes) do
@@ -90,7 +90,7 @@ end
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
-	local concurrentFlows = 1
+	local concurrentFlows = 1000
 	local rate = rate or 20 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
@@ -115,7 +115,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		local ts = moon.getTime()
 		repeat
 -- 			pkt.ip4.dst:set(baseIP)
-			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows))
+			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows - 1))
 			if math.random(0, 10000000) == 0 then
 				pkt.ip4:setTTL(70)
 			else
@@ -125,7 +125,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		txCtr:updateWithSize(s1:size(), packetSize)
 		s1:release()
 		if newFlowTimer:expired() then
--- 			baseIP = baseIP + 1
+			baseIP = baseIP + 1
 			newFlowTimer:reset()
 		end
 		rateLimiter:wait()
@@ -195,21 +195,19 @@ function buildFilterExpr(pkt)
 			" dst host " .. pkt.ip4.dst:getString() .. " dst port " .. pkt.udp:getDstPort()
 end
 
-function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
+function TBBAnalyzer(qq, id, hashmap, pipes)
 	local hashmap = hashmap
-	local ctx = flowtracker.QSBRCreateContext()
-	local rxCtr = stats:newManualRxCounter("QQ Leapfrog Thread #" .. id, "plain")
+	local rxCtr = stats:newManualRxCounter("TBB Analyzer Thread #" .. id, "plain")
 	local epsilon = 2  -- allowed area around the avrg. TLL
 	
 	-- dummy filter for testing
-	filterPipe:send("src host 10.0.0.1")
+-- 	filterPipe:send("src host 10.0.0.1")
 	
 	local tuple = ffi.new("struct ipv4_5tuple")
 	
 	while moon.running() do
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
--- 			print("leapfrog 0", i)
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
 			local parsedPkt = pktLib.getUdp4Packet(pkt)
@@ -218,50 +216,22 @@ function leapfrogAnalyzer(qq, id, hashmap, filterPipe)
 			tuple.port_dst = parsedPkt.udp:getDstPort()
 			tuple.port_src = parsedPkt.udp:getSrcPort()
 			tuple.proto = parsedPkt.ip4:getProtocol()
-
-			local hash = tuple:hash()
--- 			print("leapfrog 1", hash)
 			local TTL = parsedPkt.ip4:getTTL()
 			
-			local res = hashmap:get(hash)
-			if res ~= 0ULL and 
-					(TTL > flowtracker.getAverageTTL(res) + epsilon or
-					TTL < flowtracker.getAverageTTL(res) - epsilon) then
-				print("Anomaly detected")
+			local ano = hashmap:checkAndUpdate(tuple, TTL, epsilon)
+			if ano ~= 0 then
+				local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
+				print(bred("[TBB Analyzer Thread #".. id .."]") .. ": Anomaly detected:", ano, TTL, event.action, event.filter)
+				for _, pipe in ipairs(pipes) do
+					pipe:send(event)
+				end
+			else
+				-- Flow normal
 			end
-			
--- 			print("leapfrog 2", "TTL:", TTL, "res:", res)
-			local val = flowtracker.updateTTL(res, TTL)
--- 			if val == 0ULL or val == 1ULL then
--- 				print("hash can not be 0 or 1")
--- 				moon.stop()
--- 			end
--- 			print("leapfrog 3", val)
-			local other = hashmap:exchange(hash, val)
--- 			print("leapfrog 4", other)
-			
-			-- Analyze
-			
-			-- Send new filters
-			--local newFilter = "udp port 1111"
-			--filterPipe:send(newFilter)
-			
--- 			if res == 0ULL then -- 0 = not found
--- 				local val = flowtracker.updateTTL(0ULL, parsedPkt.ip4:getTTL())
--- 				hashmap:set(tuple:hash(), val)
--- 			else
--- 				local val = flowtracker.updateTTL(res, parsedPkt.ip4:getTTL())
--- 				hashmap:set(tuple:hash(), val)
--- 			end
 		end
-		
-		
 		storage:release()
-		flowtracker.QSBRUpdateContext(ctx)
 	end
-	
 	rxCtr:finalize()
-	flowtracker.QSBRDestroyContext(ctx)
 end
 
 function batched_rte_hash_Analyzer(qq, id, tracker, pipes)
@@ -517,7 +487,7 @@ end
 function continuousDumper(qq, id, path, filterPipe)
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
-	local rxCtr = stats:newManualRxCounter("QQ Dumper Thread   #" .. id, "plain")
+	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
 	local ruleExpirationTimer = timer:new(30)
 	
 	while moon.running() do
@@ -565,10 +535,10 @@ function continuousDumper(qq, id, path, filterPipe)
 			-- WTF??
 			for _, rule in ipairs(ruleList) do
 				if rule.pfFn(pkt.data, pkt.len) then
--- 						print("Dumper #" .. id .. ": Got match!")
-						if rule.pcap then
-							rule.pcap:write(timestamp, pkt.data, pkt.len)
-						end
+-- 					print("Dumper #" .. id .. ": Got match!")
+					if rule.pcap then
+						rule.pcap:write(timestamp, pkt.data, pkt.len)
+					end
 				end
 			end
 		end
