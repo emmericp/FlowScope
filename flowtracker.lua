@@ -54,21 +54,6 @@ ffi.cdef [[
     int rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys, uint32_t num_keys, int32_t *positions);
     int32_t rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next);
     
-    /* junction::leapfrog wrapper */
-    typedef uint16_t QSBR_context;
-    typedef struct ConcurrentMap ConcurrentMap;
-    typedef uint32_t Key;
-    typedef uint64_t Value;
-    
-    QSBR_context QSBR_create_context();
-    void QSBR_update(QSBR_context ctx);
-    void QSBR_destroy_context(QSBR_context ctx);
-    
-    ConcurrentMap* concurrent_map_create();
-    void concurrent_map_delete(ConcurrentMap* map);
-    Value concurrent_map_get(ConcurrentMap* map, Key key);
-    Value concurrent_map_exchange(ConcurrentMap* map, Key key, Value val);
-    
     /* TTL helpers */
     uint16_t get_average_TTL(uint64_t val);
     uint64_t update_TTL(uint64_t val, uint16_t new_ttl);
@@ -151,40 +136,6 @@ end
 
 function hash:lookupBatch(keys, numKeys, positions)
     return C.rte_hash_lookup_bulk(self, keys, numKeys, positions)
-end
-
-
--- junction leapfrog wrapper
-local leapfrog = {}
-leapfrog.__index = leapfrog
-ffi.metatype("struct ConcurrentMap", leapfrog)
-
-function mod.createLeapfrog()
-    return flowtrackerlib.concurrent_map_create()
-end
-
-function leapfrog:delete()
-    flowtrackerlib.concurrent_map_delete(self)
-end
-
-function leapfrog:get(key)
-    return flowtrackerlib.concurrent_map_get(self, key)
-end
-
-function leapfrog:exchange(key, value)
-    return flowtrackerlib.concurrent_map_exchange(self, key, value)
-end
-
-function mod.QSBRCreateContext()
-    return flowtrackerlib.QSBR_create_context();
-end
-
-function mod.QSBRDestroyContext(ctx)
-    flowtrackerlib.QSBR_destroy_context(ctx)
-end
-
-function mod.QSBRUpdateContext(ctx)
-    flowtrackerlib.QSBR_update(ctx)
 end
 
 

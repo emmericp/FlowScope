@@ -1,10 +1,3 @@
 [submodule "libmoon"]
 	path = libmoon
 	url = https://github.com/libmoon/libmoon
-[submodule "junction"]
-	path = junction
-	url = https://github.com/pudelkoM/junction.git
-[submodule "turf"]
-	path = turf
-	url = https://github.com/pudelkoM/turf.git
-
