@@ -17,7 +17,7 @@ namespace flowtracker {
     } __attribute__((__packed__));
     static_assert(sizeof(ipv4_5tuple) == 13, "Unexpected IPv4 5-tuple size");
 
-    bool operator==(const flowtracker::ipv4_5tuple& lhs, const flowtracker::ipv4_5tuple& rhs);
+    bool operator==(const flowtracker::ipv4_5tuple& lhs, const flowtracker::ipv4_5tuple& rhs) noexcept;
     
     struct ipv6_5tuple {
         std::uint8_t  ip_dst[IPV6_ADDR_LEN];

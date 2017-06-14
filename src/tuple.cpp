@@ -1,6 +1,6 @@
 #include <tuple.hpp> 
 
-bool flowtracker::operator==(const flowtracker::ipv4_5tuple& lhs, const flowtracker::ipv4_5tuple& rhs) {
+bool flowtracker::operator==(const flowtracker::ipv4_5tuple& lhs, const flowtracker::ipv4_5tuple& rhs) noexcept {
     return lhs.ip_dst == rhs.ip_dst &&
             lhs.ip_src == rhs.ip_src &&
             lhs.port_dst == rhs.port_dst &&

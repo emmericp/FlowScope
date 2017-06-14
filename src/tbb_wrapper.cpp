@@ -20,11 +20,12 @@ namespace tbb_wrapper {
         static_assert(sizeof(std::size_t) == 8, "size_t not 8 byte!");
     };
     
+    // CRC is ~5-10% faster than jhash
     struct v4_crc_hash {
         v4_crc_hash() = default;
         v4_crc_hash(const v4_crc_hash& h) = default;
         
-        inline bool equal(const flowtracker::ipv4_5tuple& j, const flowtracker::ipv4_5tuple& k) const {
+        inline bool equal(const flowtracker::ipv4_5tuple& j, const flowtracker::ipv4_5tuple& k) const noexcept {
             return j.ip_dst == k.ip_dst &&
                     j.ip_src == k.ip_src &&
                     j.port_dst == k.port_dst &&
@@ -32,7 +33,7 @@ namespace tbb_wrapper {
                     j.proto == k.proto;
         }
         
-        inline std::size_t hash(const flowtracker::ipv4_5tuple& k) const {
+        inline std::size_t hash(const flowtracker::ipv4_5tuple& k) const noexcept {
             uint32_t hash = 0;
             hash = _mm_crc32_u32(hash, k.ip_dst);
             hash = _mm_crc32_u32(hash, k.ip_src);
