@@ -502,6 +502,7 @@ function continuousDumper(qq, id, path, filterPipe)
 -- 		end
 		
 		-- Get new filters
+		-- TODO: loop until all messages are read
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
 			if event.action == "create" then
@@ -509,10 +510,12 @@ function continuousDumper(qq, id, path, filterPipe)
 -- 				print("Dumper #" .. id .. ": new rule", ruleSet[#ruleSet], ruleSet[#ruleSet].pfFn, ruleSet[#ruleSet].pcap, ruleSet[#ruleSet].filter)
 			elseif event.action == "delete" then
 				-- TODO: handle expire etc
+				-- TODO: ensure pcaps get closed
 				ruleSet[event.filter] = nil
 			end
 			
 			-- Update ruleList
+			-- TODO: move pcap writer generation to set
 			ruleList = {}
 			for expr, _ in pairs(ruleSet) do
 				local triggerWallTime = wallTime()
