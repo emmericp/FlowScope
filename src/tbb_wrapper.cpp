@@ -3,6 +3,7 @@
 #include <rte_jhash.h>
 #include <chrono>
 #include <x86intrin.h>
+#include <thread>
 
 namespace tbb_wrapper {
     template<typename Key>
@@ -53,9 +54,132 @@ namespace tbb_wrapper {
             return hash;
         }
     };
+    
+    /* TBB hash_map with build-in swapping */
+    using D = flowtracker::ttl_flow_data;
+    using v4tpl = flowtracker::ipv4_5tuple;
+    using v6tpl = flowtracker::ipv6_5tuple;
+    using hash_v4 = tbb_wrapper::my_hash<v4tpl>;
+    using hash_v6 = tbb_wrapper::my_hash<v6tpl>;
+    using tbb_map_v4 = tbb::concurrent_hash_map<v4tpl, D, tbb_wrapper::v4_crc_hash>;
+    using tbb_map_v6 = tbb::concurrent_hash_map<v6tpl, D, hash_v6>;
+    
+    /*
+     * Keep interface generic, split value access and modification
+     * Using flowscope with own datatype should be possible with only changing D
+     */
+    
+    struct tbb_tracker {
+        tbb_tracker(std::size_t pre_alloc) {
+            current4 = new tbb_map_v4(pre_alloc);
+            old4 = new tbb_map_v4(pre_alloc);
+        }
+        ~tbb_tracker() {
+            delete current4;
+            delete old4;
+        }
+        void swapper() {
+            /*
+             * Idea:
+             *  1. Wait 30 sec since last swap
+             *  2. old is not used anymore, safe to iterate over
+             *  3. Iterate over old:
+             *      - Check if 5-tuple still exists in current
+             *      - If not, issue rule deletion to dumpers
+             *      - If yes, ignore
+             *  4. Clear old
+             *  5. Swap old and current
+             * 
+             * Analyzers seeing an empty map should be not problem: Every TTL change is an anomaly,
+             * base value does not matter.
+             * Also solves TTL counter overflow problem. Maybe even switch back to smaller uint32_t.
+             * 
+             * Maybe make the swapper a member function so that it can be run in a shared task.
+             */
+            
+            std::this_thread::sleep_for(std::chrono::seconds(30)); // 1.
+            
+            // 3.
+            auto cur = current4.load();
+            for (auto it = old4->begin(); it != old4->end(); ++it) {
+                tbb_map_v4::const_accessor a;
+                if (!cur->find(a, it->first)) {
+                    // Mark for deletion
+                    // TODO: can't work atm since there is no way to send stuff over the pipes to the dumpers
+                }
+            }
+            
+            old4->clear(); // 4.
+            tbb_map_v4 *temp = current4.exchange(old4);  // 5.
+            old4 = temp;
+        }
+        
+        std::atomic<tbb_map_v4*> current4;
+        std::atomic<tbb_map_v6*> current6;
+        tbb_map_v4 *old4;
+        tbb_map_v6 *old6;
+        std::chrono::steady_clock::time_point last_swap;
+    };
 }
 
 extern "C" {
+    /* TBB hash_map with build-in swapping */
+    using namespace tbb_wrapper;
+    tbb_tracker* tbb_tracker_create(std::size_t pre_alloc) {
+        return new tbb_tracker(pre_alloc);
+    }
+    
+    void tbb_tracker_clear(tbb_tracker* tr) {
+        tr->old4->clear();
+        tr->current4.load()->clear();
+    }
+    
+    void tbb_tracker_delete(tbb_tracker* tr) {
+        delete tr;
+    }
+    
+    void tbb_tracker_swapper(tbb_tracker* tr) {
+        tr->swapper();
+    }
+    
+    tbb_map_v4::const_accessor* tbb_wrapper_const_access4(tbb_tracker* tr, const v4tpl* tpl) {
+        auto a = new tbb_map_v4::const_accessor;
+        if (tr->current4.load()->find(*a, *tpl)) {
+            return a;
+        } else {
+            return nullptr;
+        }
+    }
+    
+    const D* tbb_wrapper_const_get4(tbb_map_v4::const_accessor* a) {
+        return &(*a)->second;
+    }
+    
+    void tbb_wrapper_const_release4(tbb_map_v4::const_accessor* a) {
+        a->release();
+        delete a;
+    }
+    
+    tbb_map_v4::accessor* tbb_wrapper_access4(tbb_tracker* tr, const v4tpl* tpl) {
+        auto a = new tbb_map_v4::accessor;
+        if (tr->current4.load()->find(*a, *tpl)) {
+            return a;
+        } else {
+            return nullptr;
+        }
+    }
+    
+    D* tbb_wrapper_get4(tbb_map_v4::accessor* a) {
+        return &(*a)->second;
+    }
+    
+    void tbb_wrapper_release4(tbb_map_v4::accessor* a) {
+        a->release();
+        delete a;
+    }
+    
+    
+    /* Simple TBB hash_map wrapper */
     using D = flowtracker::ttl_flow_data;
     using v4tpl = flowtracker::ipv4_5tuple;
     using v6tpl = flowtracker::ipv6_5tuple;
