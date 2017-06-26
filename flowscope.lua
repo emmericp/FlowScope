@@ -207,24 +207,24 @@ function continuousDumper(qq, id, path, filterPipe)
 		-- TODO: loop until all messages are read
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
-			if event.action == "create" then
-				ruleSet[event.filter] = {}
--- 				print("Dumper #" .. id .. ": new rule", ruleSet[#ruleSet], ruleSet[#ruleSet].pfFn, ruleSet[#ruleSet].pcap, ruleSet[#ruleSet].filter)
-			elseif event.action == "delete" then
+			if event.action == "create" and ruleSet[event.filter] == nil then
+				local triggerWallTime = wallTime()
+				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
+				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
+				ruleSet[event.filter] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
+				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
+			elseif event.action == "delete" and ruleSet[event.filter] ~= nil then
 				-- TODO: handle expire etc
-				-- TODO: ensure pcaps get closed
+				if ruleSet[event.filter].pcap then
+					ruleSet[event.filter].pcap:close()
+				end
 				ruleSet[event.filter] = nil
 			end
 			
 			-- Update ruleList
-			-- TODO: move pcap writer generation to set
 			ruleList = {}
-			for expr, _ in pairs(ruleSet) do
-				local triggerWallTime = wallTime()
-				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
-				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
-				ruleList[#ruleList+1] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
--- 				ruleList[#ruleList+1] = {pfFn = function() end, pcap = nil}
+			for _, v in pairs(ruleSet) do
+				ruleList[#ruleList+1] = v
 			end
 			print("Dumper #" .. id .. ": total number of rules:", #ruleList)
 		end
@@ -235,9 +235,6 @@ function continuousDumper(qq, id, path, filterPipe)
 			local timestamp = pkt:getTimestamp()
 			rxCtr:updateWithSize(1, pkt:getLength())
 			
-			-- ipairs: 20 Mpps
-			-- pairs: 1.6 Mpps
-			-- WTF??
 			for _, rule in ipairs(ruleList) do
 				if rule.pfFn(pkt.data, pkt.len) then
 -- 					print("Dumper #" .. id .. ": Got match!")
@@ -250,7 +247,7 @@ function continuousDumper(qq, id, path, filterPipe)
 		storage:release()
 	end
 	rxCtr:finalize()
-	for _, rule in ipairs(ruleList) do
+	for _, rule in ipairs(ruleSet) do
 		if rule.pcap then
 			rule.pcap:close()
 		end
