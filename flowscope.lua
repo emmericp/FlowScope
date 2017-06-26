@@ -57,7 +57,7 @@ function master(args)
 	local pipes = {}
 	for i = 1, args.dumperThreads do
 		pipes[i] = pipe.newSlowPipe()
-		moon.startTask("continuousDumper", qq, i, "./dumps", pipes[i])
+		moon.startTask("continuousDumper", qq, i, args.path, pipes[i])
 	end
 	
 -- 	local tracker = flowtracker.createHashmap(2^24, "map 0")
