@@ -1,9 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.10)
 
-IF(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
-	MESSAGE(FATAL_ERROR "FlowScope requires gcc 5 or newer.")
-ENDIF()
-
 SET(CMAKE_CXX_FLAGS "-fno-stack-protector -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -g -O3 -std=gnu++11 -march=native")
 SET(CMAKE_C_FLAGS "-fno-stack-protector -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -g -O3 -std=gnu11 -march=native")
 
