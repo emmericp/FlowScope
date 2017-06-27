@@ -44,7 +44,7 @@ function master(args)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
 			if args.generate then
-				moon.startTask("traffic_generator", qq, i, nil, 0.000001, args.rate)
+				moon.startTask("traffic_generator", qq, i, nil, 1, args.rate)
 			else
 				moon.startTask("inserter", dev:getRxQueue(i), qq)
 			end
@@ -57,10 +57,15 @@ function master(args)
 		moon.startTask("continuousDumper", qq, i, args.path, pipes[i])
 	end
 	
-	local tracker = flowtracker.createTBBMapv4(2^20)
+-- 	local tracker = flowtracker.createTBBMapv4(2^20)
+
+	local tracker = flowtracker.createTBBTracker(2^20)
+	moon.startTask("swapper", tracker, pipes)
+	
 	for i = 1, args.analyzeThreads do
 -- 		moon.startTask("dummyAnalyzer", qq, i)
-		moon.startTask("TBBAnalyzer", qq, i, tracker, pipes)
+-- 		moon.startTask("TBBAnalyzer", qq, i, tracker, pipes)
+		moon.startTask("TBBTrackerAnalyzer", qq, i, tracker, pipes)
 	end
 	
 	for i, v in ipairs(pipes) do
@@ -77,6 +82,20 @@ end
 function inserter(rxQueue, qq)
 	-- the inserter is C++ in libqq to get microsecond-level software timestamping precision
 	qq:inserterLoop(rxQueue)
+end
+
+function swapper(tracker, pipes)
+	local buf = ffi.new("struct ipv4_5tuple[?]", 128)
+	while moon.running() do
+		local c = tracker:swapper(buf, 128)
+		for i = 0, tonumber(c) - 1 do
+			local event = {action = "delete", filter = filterExprFromTuple(buf[i])}
+			print(bred("[Swapper]: send event:"), event.action, event.filter)
+			for _, pipe in ipairs(pipes) do
+				pipe:send(event)
+			end
+		end
+	end
 end
 
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
@@ -133,6 +152,20 @@ function fillLevelChecker(qq)
 	end
 end
 
+function filterExprFromTuple(tpl)
+	local s = ""
+	local ipAddr = ffi.new("union ip4_address")
+	ipAddr:set(tpl.ip_src)
+	s = s .. "src host " .. ipAddr:getString()
+	ipAddr:set(tpl.ip_dst)
+	s = s .. " src port " .. tonumber(tpl.port_src)
+	ipAddr:set(tpl.ip_dst)
+	s = s .. " dst host " .. ipAddr:getString()
+	s = s .. " dst port " .. tonumber(tpl.port_dst)
+	s = s .. " udp"
+	return s
+end
+
 -- TODO
 function buildFilterExpr(pkt)
 	return "src host " .. pkt.ip4.src:getString() .. " src port " .. pkt.udp:getSrcPort() .. 
@@ -171,6 +204,51 @@ function TBBAnalyzer(qq, id, hashmap, pipes)
 		storage:release()
 	end
 	rxCtr:finalize()
+end
+
+function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
+	local hashmap = hashmap
+	local rxCtr = stats:newManualRxCounter("TBB Tracker Analyzer Thread #" .. id, "plain")
+	local epsilon = 2  -- allowed area around the avrg. TLL
+	local tuple = ffi.new("struct ipv4_5tuple")
+	
+	local acc = flowtracker.createAccessor()
+	
+	while moon.running() do
+		local storage = qq:peek()
+		for i = 0, storage:size() - 1 do
+-- 			local ts = moon.getTime()
+			local pkt = storage:getPacket(i)
+			rxCtr:updateWithSize(1, pkt.len)
+			local parsedPkt = pktLib.getUdp4Packet(pkt)
+			tuple.ip_dst = parsedPkt.ip4:getDst()
+			tuple.ip_src = parsedPkt.ip4:getSrc()
+			tuple.port_dst = parsedPkt.udp:getDstPort()
+			tuple.port_src = parsedPkt.udp:getSrcPort()
+			tuple.proto = parsedPkt.ip4:getProtocol()
+			local TTL = parsedPkt.ip4:getTTL()
+			
+			--local acc = hashmap:access(tuple)
+			hashmap:access2(tuple, acc)
+			local ttlData = acc:get()
+			local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
+			--local ano = math.random(0, 10000000) == 0 or 0
+			acc:release()
+			if ano ~= 0 then
+				--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
+				local event = {action = "create", filter = filterExprFromTuple(tuple)}
+				print(bred("[TBB Analyzer Thread #".. id .."]") .. ": send event", event.action, event.filter)
+				for _, pipe in ipairs(pipes) do
+					pipe:send(event)
+				end
+			end
+-- 			local ts2 = moon.getTime()
+-- 			print(1, ts2 - ts)
+		end
+		storage:release()
+	end
+	rxCtr:finalize()
+	acc:free()
 end
 
 function dummyAnalyzer(qq, id)
@@ -214,10 +292,10 @@ function continuousDumper(qq, id, path, filterPipe)
 				ruleSet[event.filter] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
 				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
 			elseif event.action == "delete" and ruleSet[event.filter] ~= nil then
-				-- TODO: handle expire etc
 				if ruleSet[event.filter].pcap then
 					ruleSet[event.filter].pcap:close()
 				end
+				print("Dumper #" .. id .. ": rule deletion:", event.filter)
 				ruleSet[event.filter] = nil
 			end
 			

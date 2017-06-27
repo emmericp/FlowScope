@@ -16,15 +16,19 @@ extern "C" {
         return tpl->hash();
     }
     
-    std::uint16_t get_average_TTL(std::uint64_t val) {
-        auto sum = val >> 28;
-        auto packets = val & ((1ull<<28) - 1);
-        return sum/packets;
+    std::uint16_t ttl_check_and_update_TTL(flowtracker::ttl_flow_data *data, const std::uint16_t observed_ttl, const std::uint16_t epsilon) {
+        auto avrg = data->get_and_update_TTL(observed_ttl);
+        if (observed_ttl > avrg + epsilon || observed_ttl < avrg - epsilon)
+            return avrg;
+        else
+            return 0;
     }
     
-    std::uint64_t update_TTL(std::uint64_t val, std::uint16_t new_ttl) {
-        val += (static_cast<uint64_t>(new_ttl)<<28);
-        val += 1;
-        return val;
+    std::uint16_t ttl_update_and_check_TTL(flowtracker::ttl_flow_data *data, const std::uint16_t observed_ttl, const std::uint16_t epsilon) {
+        auto avrg = data->update_and_get_TTL(observed_ttl);
+        if (observed_ttl > avrg + epsilon || observed_ttl < avrg - epsilon)
+            return avrg;
+        else
+            return 0;
     }
 }

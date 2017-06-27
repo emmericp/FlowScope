@@ -4,6 +4,7 @@
 #include <chrono>
 #include <x86intrin.h>
 #include <thread>
+#include <vector>
 
 namespace tbb_wrapper {
     template<typename Key>
@@ -71,6 +72,7 @@ namespace tbb_wrapper {
     
     struct tbb_tracker {
         tbb_tracker(std::size_t pre_alloc) {
+            last_swap = std::chrono::steady_clock::now();
             current4 = new tbb_map_v4(pre_alloc);
             old4 = new tbb_map_v4(pre_alloc);
         }
@@ -78,7 +80,8 @@ namespace tbb_wrapper {
             delete current4;
             delete old4;
         }
-        void swapper() {
+        
+        std::size_t iterative_swapper(v4tpl* buf, std::size_t sz) {
             /*
              * Idea:
              *  1. Wait 30 sec since last swap
@@ -96,22 +99,31 @@ namespace tbb_wrapper {
              * 
              * Maybe make the swapper a member function so that it can be run in a shared task.
              */
-            
-            std::this_thread::sleep_for(std::chrono::seconds(30)); // 1.
-            
-            // 3.
+            std::printf("[Swapper]: Entering\n");
+            std::this_thread::sleep_until(last_swap + std::chrono::seconds(30));
+            std::printf("[Swapper]: 30 sec over\n");
+            std::printf("[Swapper]: entries in old: %lu\n", old4->size());
             auto cur = current4.load();
+            std::size_t i = 0;
+            std::uint64_t del_counter = 0;
             for (auto it = old4->begin(); it != old4->end(); ++it) {
                 tbb_map_v4::const_accessor a;
                 if (!cur->find(a, it->first)) {
-                    // Mark for deletion
-                    // TODO: can't work atm since there is no way to send stuff over the pipes to the dumpers
+                    // Mark for deletion, 
+                    if (i >= sz) {
+                        break;
+                    }
+                    buf[i++] = it->first;
+                    ++del_counter;
                 }
             }
-            
-            old4->clear(); // 4.
-            tbb_map_v4 *temp = current4.exchange(old4);  // 5.
+            old4->clear();
+            std::printf("[Swapper]: entries in old after clear: %lu\n", old4->size());
+            tbb_map_v4 *temp = current4.exchange(old4);
             old4 = temp;
+            last_swap = std::chrono::steady_clock::now();
+            std::printf("[Swapper]: done, purged %lu\n", del_counter);
+            return i;
         }
         
         std::atomic<tbb_map_v4*> current4;
@@ -119,6 +131,8 @@ namespace tbb_wrapper {
         tbb_map_v4 *old4;
         tbb_map_v6 *old6;
         std::chrono::steady_clock::time_point last_swap;
+    private:
+        tbb_map_v4::iterator it;
     };
 }
 
@@ -138,44 +152,51 @@ extern "C" {
         delete tr;
     }
     
-    void tbb_tracker_swapper(tbb_tracker* tr) {
-        tr->swapper();
+    std::size_t tbb_tracker_swapper(tbb_tracker* tr, v4tpl* buf, std::size_t sz) {
+        return tr->iterative_swapper(buf, sz);
     }
     
-    tbb_map_v4::const_accessor* tbb_wrapper_const_access4(tbb_tracker* tr, const v4tpl* tpl) {
+    tbb_map_v4::const_accessor* tbb_tracker_const_access4(tbb_tracker* tr, const v4tpl* tpl) {
         auto a = new tbb_map_v4::const_accessor;
-        if (tr->current4.load()->find(*a, *tpl)) {
-            return a;
-        } else {
-            return nullptr;
-        }
+        tr->current4.load()->insert(*a, *tpl);
+        return a;
     }
     
-    const D* tbb_wrapper_const_get4(tbb_map_v4::const_accessor* a) {
+    const D* tbb_tracker_const_get4(tbb_map_v4::const_accessor* a) {
         return &(*a)->second;
     }
     
-    void tbb_wrapper_const_release4(tbb_map_v4::const_accessor* a) {
+    void tbb_tracker_const_release4(tbb_map_v4::const_accessor* a) {
         a->release();
         delete a;
     }
     
-    tbb_map_v4::accessor* tbb_wrapper_access4(tbb_tracker* tr, const v4tpl* tpl) {
+    tbb_map_v4::accessor* tbb_tracker_access4(tbb_tracker* tr, const v4tpl* tpl) {
         auto a = new tbb_map_v4::accessor;
-        if (tr->current4.load()->find(*a, *tpl)) {
-            return a;
-        } else {
-            return nullptr;
-        }
+        tr->current4.load()->insert(*a, *tpl);
+        return a;
     }
     
-    D* tbb_wrapper_get4(tbb_map_v4::accessor* a) {
+    D* tbb_tracker_get4(tbb_map_v4::accessor* a) {
         return &(*a)->second;
     }
     
-    void tbb_wrapper_release4(tbb_map_v4::accessor* a) {
+    void tbb_tracker_free4(tbb_map_v4::accessor* a) {
         a->release();
         delete a;
+    }
+    
+    void tbb_tracker_release4(tbb_map_v4::accessor* a) {
+        a->release();
+    }
+    
+    tbb_map_v4::accessor* tbb_tracker_accessor4() {
+        return new tbb_map_v4::accessor;
+    }
+    
+    bool tbb_tracker_access42(tbb_tracker* tr, tbb_map_v4::accessor* a,const v4tpl* tpl) {
+        tr->current4.load()->insert(*a, *tpl);
+        return a;
     }
     
     

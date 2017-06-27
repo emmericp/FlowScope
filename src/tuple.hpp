@@ -38,15 +38,20 @@ namespace flowtracker {
             return running_sum / packets;
         }
         
-        inline void update_TTL(std::uint16_t observed_ttl) {
+        inline void update_TTL(std::uint16_t observed_ttl) noexcept {
             running_sum += observed_ttl;
             ++packets;
         }
         
-        inline std::uint16_t get_and_update_TTL(std::uint16_t ttl) {
+        inline std::uint16_t get_and_update_TTL(std::uint16_t ttl) noexcept {
             auto prev = get_average_TTL();
             update_TTL(ttl);
             return prev;
+        }
+        
+        inline std::uint16_t update_and_get_TTL(std::uint16_t ttl) noexcept {
+            update_TTL(ttl);
+            return get_average_TTL();
         }
     };
 }
@@ -55,22 +60,8 @@ extern "C" {
     std::uint32_t ipv4_5tuple_hash(const struct flowtracker::ipv4_5tuple* tpl);
     std::uint32_t ipv6_5tuple_hash(const struct flowtracker::ipv6_5tuple* tpl);
     
+    /* Bindings for ttl_flow_data functions */
+    std::uint16_t ttl_check_and_update_TTL(flowtracker::ttl_flow_data *data, const std::uint16_t observed_ttl, const std::uint16_t epsilon);
     
-    // Since Leapfrog only allows ints or pointers as values, we try to squeze
-    // as much as possible out of a uint64_t.
-    // To store the average TTL of a flow, the running sum of all
-    // observed TTL values and the number of observed values are needed.
-    // Assuming an average TTL value of 128 = 2^7, the int storing the TTL sum
-    // must be 2^7 times larger than the int counting the packets.
-    // This also prevents generationo of the values 0 and 1, which are reserved by Leapfrog.
-    // Thus the uint64_t is split as follows:
-    struct ttl_uint64_t {
-        std::uint64_t running_sum:36; // max 68719476736
-        std::uint64_t     packets:28; // max 268435456
-    };
-    static_assert(sizeof(ttl_uint64_t) == sizeof(std::uint64_t), "Unexpected TTL in uint64_t size");
-    
-    std::uint16_t get_average_TTL(std::uint64_t val);
-    std::uint64_t update_TTL(std::uint64_t val, std::uint16_t new_ttl);
-
+    std::uint16_t ttl_update_and_check_TTL(flowtracker::ttl_flow_data *data, const std::uint16_t observed_ttl, const std::uint16_t epsilon);
 }
