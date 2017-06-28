@@ -15,6 +15,10 @@ local pipe   = require "pipe"
 local timer  = require "timer"
 local flowtracker = require "flowtracker"
 
+local jit = require "jit"
+jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
+
+
 function configure(parser)
 	parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
 	parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB."):convert(tonumber):default("8")
@@ -220,13 +224,61 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 -- 			local ts = moon.getTime()
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
+			-- Parsing begins
 			local parsedPkt = pktLib.getUdp4Packet(pkt)
-			tuple.ip_dst = parsedPkt.ip4:getDst()
-			tuple.ip_src = parsedPkt.ip4:getSrc()
-			tuple.port_dst = parsedPkt.udp:getDstPort()
-			tuple.port_src = parsedPkt.udp:getSrcPort()
-			tuple.proto = parsedPkt.ip4:getProtocol()
-			local TTL = parsedPkt.ip4:getTTL()
+			local TTL
+			if parsedPkt.eth:getType() == eth.TYPE_IP then
+				-- actual L4 type doesn't matter
+-- 				local parsedPkt = pktLib.getUdp4Packet(pkt)
+				tuple.ip_dst = parsedPkt.ip4:getDst()
+				tuple.ip_src = parsedPkt.ip4:getSrc()
+				TTL = parsedPkt.ip4:getTTL()
+				if parsedPkt.ip4:getProtocol() == ip.PROTO_UDP then
+					tuple.port_dst = parsedPkt.udp:getDstPort()
+					tuple.port_src = parsedPkt.udp:getSrcPort()
+					tuple.proto = parsedPkt.ip4:getProtocol()
+				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
+					-- port at the same position as UDP
+					tuple.port_dst = parsedPkt.udp:getDstPort()
+					tuple.port_src = parsedPkt.udp:getSrcPort()
+					tuple.proto = parsedPkt.ip4:getProtocol()
+				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
+					-- port at the same position as UDP
+					tuple.port_dst = parsedPkt.udp:getDstPort()
+					tuple.port_src = parsedPkt.udp:getSrcPort()
+					tuple.proto = parsedPkt.ip4:getProtocol()
+				end
+-- 			elseif parsedPkt.eth:getType() == eth.TYPE_IP6 then
+-- 				local pkt = pktLib.getUdp6Packet(pkt)
+-- 				replacements.srcIP = pkt.ip6:getSrcString()
+-- 				replacements.dstIP = pkt.ip6:getDstString()
+-- 				TTL = parsedPkt.ip6:getTTL()
+-- 				if parsedPkt.ip6:getNextHeader() == ip.PROTO_UDP then
+-- 					tuple.port_dst = parsedPkt.udp:getDstPort()
+-- 					tuple.port_src = parsedPkt.udp:getSrcPort()
+-- 					tuple.proto = parsedPkt.ip4:getProtocol()
+-- 				elseif parsedPkt.ip6:getNextHeader() == ip.PROTO_TCP then
+-- 					-- port at the same position as UDP
+-- 					tuple.port_dst = parsedPkt.udp:getDstPort()
+-- 					tuple.port_src = parsedPkt.udp:getSrcPort()
+-- 					tuple.proto = parsedPkt.ip4:getProtocol()
+-- 				elseif parsedPkt.ip6:getNextHeader() == ip.PROTO_SCTP then
+-- 					-- port at the same position as UDP
+-- 					tuple.port_dst = parsedPkt.udp:getDstPort()
+-- 					tuple.port_src = parsedPkt.udp:getSrcPort()
+-- 					tuple.proto = parsedPkt.ip4:getProtocol()
+-- 				else
+-- 					
+-- 				end
+			end
+			-- parsing ends
+-- 			local parsedPkt = pktLib.getUdp4Packet(pkt)
+-- 			tuple.ip_dst = parsedPkt.ip4:getDst()
+-- 			tuple.ip_src = parsedPkt.ip4:getSrc()
+-- 			tuple.port_dst = parsedPkt.udp:getDstPort()
+-- 			tuple.port_src = parsedPkt.udp:getSrcPort()
+-- 			tuple.proto = parsedPkt.ip4:getProtocol()
+-- 			local TTL = parsedPkt.ip4:getTTL()
 			
 			--local acc = hashmap:access(tuple)
 			hashmap:access2(tuple, acc)

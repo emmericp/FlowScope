@@ -100,7 +100,7 @@ namespace tbb_wrapper {
              * Maybe make the swapper a member function so that it can be run in a shared task.
              */
             std::printf("[Swapper]: Entering\n");
-            std::this_thread::sleep_until(last_swap + std::chrono::seconds(30));
+            std::this_thread::sleep_until(last_swap + std::chrono::seconds(120));
             std::printf("[Swapper]: 30 sec over\n");
             std::printf("[Swapper]: entries in old: %lu\n", old4->size());
             auto cur = current4.load();
