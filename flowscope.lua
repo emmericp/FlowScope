@@ -221,15 +221,15 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 	while moon.running() do
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
--- 			local ts = moon.getTime()
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
-			-- Parsing begins
-			local parsedPkt = pktLib.getUdp4Packet(pkt)
 			local TTL
-			if parsedPkt.eth:getType() == eth.TYPE_IP then
+			local lookup = false
+			-- Parsing begins
+			local ethPkt = pktLib.getEthernetPacket(pkt)
+			if ethPkt.eth:getType() == eth.TYPE_IP then
 				-- actual L4 type doesn't matter
--- 				local parsedPkt = pktLib.getUdp4Packet(pkt)
+				local parsedPkt = pktLib.getUdp4Packet(pkt)
 				tuple.ip_dst = parsedPkt.ip4:getDst()
 				tuple.ip_src = parsedPkt.ip4:getSrc()
 				TTL = parsedPkt.ip4:getTTL()
@@ -237,19 +237,22 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 					tuple.port_dst = parsedPkt.udp:getDstPort()
 					tuple.port_src = parsedPkt.udp:getSrcPort()
 					tuple.proto = parsedPkt.ip4:getProtocol()
+					lookup = true
 				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
 					-- port at the same position as UDP
 					tuple.port_dst = parsedPkt.udp:getDstPort()
 					tuple.port_src = parsedPkt.udp:getSrcPort()
 					tuple.proto = parsedPkt.ip4:getProtocol()
+					lookup = true
 				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
 					-- port at the same position as UDP
 					tuple.port_dst = parsedPkt.udp:getDstPort()
 					tuple.port_src = parsedPkt.udp:getSrcPort()
 					tuple.proto = parsedPkt.ip4:getProtocol()
+					lookup = true
 				end
--- 			elseif parsedPkt.eth:getType() == eth.TYPE_IP6 then
--- 				local pkt = pktLib.getUdp6Packet(pkt)
+-- 			elseif ethPkt.eth:getType() == eth.TYPE_IP6 then
+-- 				local parsedPkt = pktLib.getUdp6Packet(pkt)
 -- 				replacements.srcIP = pkt.ip6:getSrcString()
 -- 				replacements.dstIP = pkt.ip6:getDstString()
 -- 				TTL = parsedPkt.ip6:getTTL()
@@ -270,33 +273,27 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 -- 				else
 -- 					
 -- 				end
-			
-			-- parsing ends
--- 			local parsedPkt = pktLib.getUdp4Packet(pkt)
--- 			tuple.ip_dst = parsedPkt.ip4:getDst()
--- 			tuple.ip_src = parsedPkt.ip4:getSrc()
--- 			tuple.port_dst = parsedPkt.udp:getDstPort()
--- 			tuple.port_src = parsedPkt.udp:getSrcPort()
--- 			tuple.proto = parsedPkt.ip4:getProtocol()
--- 			local TTL = parsedPkt.ip4:getTTL()
-			
-				--local acc = hashmap:access(tuple)
-				hashmap:access2(tuple, acc)
-				local ttlData = acc:get()
-				local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
-				--local ano = math.random(0, 10000000) == 0 or 0
-				acc:release()
-				if ano ~= 0 then
-					--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
-					local event = {action = "create", filter = filterExprFromTuple(tuple)}
-					print(bred("[TBB Analyzer Thread #".. id .."]") .. ": send event", event.action, event.filter)
-					for _, pipe in ipairs(pipes) do
-						pipe:send(event)
-					end
+			end
+			-- Parsing ends
+			if not lookup then
+				goto skip
+			end
+			--local acc = hashmap:access(tuple)
+			hashmap:access2(tuple, acc)
+			local ttlData = acc:get()
+			local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
+			--local ano = math.random(0, 10000000) == 0 or 0
+			if ano ~= 0 then
+				ttlData.tracked = true
+				--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
+				local event = {action = "create", filter = filterExprFromTuple(tuple)}
+				print(bred("[TBB Analyzer Thread #".. id .."]: ") .. "Anomalous TTL:", TTL, ano, event.filter)
+				for _, pipe in ipairs(pipes) do
+					pipe:send(event)
 				end
 			end
--- 			local ts2 = moon.getTime()
--- 			print(1, ts2 - ts)
+			acc:release()
+			::skip::
 		end
 		storage:release()
 	end
@@ -340,7 +337,7 @@ function continuousDumper(qq, id, path, filterPipe)
 		if event ~= nil then
 			if event.action == "create" and ruleSet[event.filter] == nil then
 				local triggerWallTime = wallTime()
-				local pcapFileName = path .. "/FlowScope-dump_" .. os.date("%Y-%m-%d %H:%M:%S", triggerWallTime) .. "_" .. event.filter .. ".pcap"
+				local pcapFileName = (path .. "/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. ".pcap"):gsub(" ", "_")
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
 				ruleSet[event.filter] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
 				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}

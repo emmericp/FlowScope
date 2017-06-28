@@ -102,10 +102,11 @@ namespace tbb_wrapper {
             std::printf("[Swapper]: Entering\n");
             std::this_thread::sleep_until(last_swap + std::chrono::seconds(120));
             std::printf("[Swapper]: 30 sec over\n");
-            std::printf("[Swapper]: entries in old: %lu\n", old4->size());
+            std::printf("[Swapper]: Entries in old: %lu\n", old4->size());
             auto cur = current4.load();
             std::size_t i = 0;
-            std::uint64_t del_counter = 0;
+            std::uint64_t purge_counter = 0;
+            std::uint64_t expire_counter = 0;
             for (auto it = old4->begin(); it != old4->end(); ++it) {
                 tbb_map_v4::const_accessor a;
                 if (!cur->find(a, it->first)) {
@@ -113,16 +114,18 @@ namespace tbb_wrapper {
                     if (i >= sz) {
                         break;
                     }
-                    buf[i++] = it->first;
-                    ++del_counter;
+                    if (it->second.tracked) {
+                        buf[i++] = it->first;
+                        ++purge_counter;
+                    }
+                    ++expire_counter;
                 }
             }
             old4->clear();
-            std::printf("[Swapper]: entries in old after clear: %lu\n", old4->size());
             tbb_map_v4 *temp = current4.exchange(old4);
             old4 = temp;
             last_swap = std::chrono::steady_clock::now();
-            std::printf("[Swapper]: done, purged %lu\n", del_counter);
+            std::printf("[Swapper]: Done. Expired %lu/%lu [tracked/total]\n", purge_counter, expire_counter);
             return i;
         }
         

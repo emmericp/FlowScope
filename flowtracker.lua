@@ -14,6 +14,7 @@ ffi.cdef [[
     struct ttl_flow_data {
         uint64_t running_sum;  // Sum of all seen TTL values
         uint64_t packets;      // Number of observed TTL values
+        bool tracked;
     } __attribute__((__packed__));
     
     struct ipv4_5tuple {

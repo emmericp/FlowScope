@@ -33,6 +33,7 @@ namespace flowtracker {
     struct ttl_flow_data {
         std::uint64_t running_sum;  // Sum of all seen TTL values
         std::uint64_t packets;      // Number of observed TTL values
+        bool tracked;
         
         inline std::uint16_t get_average_TTL() const noexcept {
             return running_sum / packets;
