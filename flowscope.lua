@@ -270,7 +270,7 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 -- 				else
 -- 					
 -- 				end
-			end
+			
 			-- parsing ends
 -- 			local parsedPkt = pktLib.getUdp4Packet(pkt)
 -- 			tuple.ip_dst = parsedPkt.ip4:getDst()
@@ -280,18 +280,19 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 -- 			tuple.proto = parsedPkt.ip4:getProtocol()
 -- 			local TTL = parsedPkt.ip4:getTTL()
 			
-			--local acc = hashmap:access(tuple)
-			hashmap:access2(tuple, acc)
-			local ttlData = acc:get()
-			local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
-			--local ano = math.random(0, 10000000) == 0 or 0
-			acc:release()
-			if ano ~= 0 then
-				--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
-				local event = {action = "create", filter = filterExprFromTuple(tuple)}
-				print(bred("[TBB Analyzer Thread #".. id .."]") .. ": send event", event.action, event.filter)
-				for _, pipe in ipairs(pipes) do
-					pipe:send(event)
+				--local acc = hashmap:access(tuple)
+				hashmap:access2(tuple, acc)
+				local ttlData = acc:get()
+				local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
+				--local ano = math.random(0, 10000000) == 0 or 0
+				acc:release()
+				if ano ~= 0 then
+					--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
+					local event = {action = "create", filter = filterExprFromTuple(tuple)}
+					print(bred("[TBB Analyzer Thread #".. id .."]") .. ": send event", event.action, event.filter)
+					for _, pipe in ipairs(pipes) do
+						pipe:send(event)
+					end
 				end
 			end
 -- 			local ts2 = moon.getTime()
