@@ -357,7 +357,10 @@ function continuousDumper(qq, id, path, filterPipe)
 			print("Dumper #" .. id .. ": total number of rules:", #ruleList)
 		end
 		
-		local storage = qq:dequeue()
+		local storage = qq:tryDequeue()
+		if storage == nil then
+			goto skip
+		end
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
@@ -373,6 +376,7 @@ function continuousDumper(qq, id, path, filterPipe)
 			end
 		end
 		storage:release()
+		::skip::
 	end
 	rxCtr:finalize()
 	for _, rule in ipairs(ruleSet) do
