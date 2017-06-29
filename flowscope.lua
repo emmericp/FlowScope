@@ -100,6 +100,7 @@ function swapper(tracker, pipes)
 			end
 		end
 	end
+	print(bred("[Swapper]: Shutdown"))
 end
 
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)

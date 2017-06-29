@@ -6,6 +6,10 @@
 #include <thread>
 #include <vector>
 
+namespace libmoon {
+    uint8_t is_running(uint32_t extra_time);
+}
+
 namespace tbb_wrapper {
     template<typename Key>
     struct my_hash {
@@ -99,9 +103,16 @@ namespace tbb_wrapper {
              * 
              * Maybe make the swapper a member function so that it can be run in a shared task.
              */
-            std::printf("[Swapper]: Entering\n");
-            std::this_thread::sleep_until(last_swap + std::chrono::seconds(120));
-            std::printf("[Swapper]: 30 sec over\n");
+            constexpr auto swap_interval = std::chrono::seconds(10);
+            constexpr auto sleep_step = std::chrono::milliseconds(100);
+            std::printf("[Swapper]: Entering wait loop\n");
+            while (last_swap + swap_interval > std::chrono::steady_clock::now()) {
+                std::this_thread::sleep_for(sleep_step);
+                if (!libmoon::is_running(0)) {
+                    return 0;
+                }
+            }
+            std::printf("[Swapper]: %li sec over\n", swap_interval.count());
             std::printf("[Swapper]: Entries in old: %lu\n", old4->size());
             auto cur = current4.load();
             std::size_t i = 0;
@@ -133,9 +144,8 @@ namespace tbb_wrapper {
         std::atomic<tbb_map_v6*> current6;
         tbb_map_v4 *old4;
         tbb_map_v6 *old6;
-        std::chrono::steady_clock::time_point last_swap;
     private:
-        tbb_map_v4::iterator it;
+        std::chrono::steady_clock::time_point last_swap;
     };
 }
 
