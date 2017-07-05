@@ -80,6 +80,10 @@ extern "C" {
         return q->try_dequeue();
     }
     
+    const QQ::Ptr<bucket_size>* qq_storage_try_peek(QQ::QQ<bucket_size>* q) {
+        return q->try_peek();
+    }
+
     const QQ::Ptr<bucket_size>* qq_storage_enqueue(QQ::QQ<bucket_size>* q) {
         auto c = new QQ::Ptr<bucket_size>(std::move(q->enqueue()));
         return c;

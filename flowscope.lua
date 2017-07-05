@@ -14,6 +14,7 @@ local colors = require "colors"
 local pipe   = require "pipe"
 local timer  = require "timer"
 local flowtracker = require "flowtracker"
+local ev = require "event"
 
 local jit = require "jit"
 jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
@@ -81,11 +82,13 @@ function master(args)
 	moon.waitForTasks()
 	tracker:delete()
 	qq:delete()
+	log:info("[master]: Shutdown")
 end
 
 function inserter(rxQueue, qq)
 	-- the inserter is C++ in libqq to get microsecond-level software timestamping precision
 	qq:inserterLoop(rxQueue)
+	log:info("[Inserter]: Shutdown")
 end
 
 function swapper(tracker, pipes)
@@ -93,14 +96,14 @@ function swapper(tracker, pipes)
 	while moon.running() do
 		local c = tracker:swapper(buf, 128)
 		for i = 0, tonumber(c) - 1 do
-			local event = {action = "delete", filter = filterExprFromTuple(buf[i])}
-			print(bred("[Swapper]: send event:"), event.action, event.filter)
+			local event = ev.newEvent(filterExprFromTuple(buf[i]), ev.delete)
+			log:info("[Swapper]: Sending event: %i, %s", event.action, event.filter)
 			for _, pipe in ipairs(pipes) do
 				pipe:send(event)
 			end
 		end
 	end
-	print(bred("[Swapper]: Shutdown"))
+	log:info("[Swapper]: Shutdown")
 end
 
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
@@ -148,6 +151,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		rateLimiter:reset()
 	end
 	txCtr:finalize()
+	log:info("[Traffic Generator]: Shutdown")
 end
 
 function fillLevelChecker(qq)
@@ -155,6 +159,7 @@ function fillLevelChecker(qq)
 		print(green("[QQ] Stored buckets: ") .. qq:size() .. "/" .. qq:capacity() .. green(" Overflows: ") .. qq:getEnqueueOverflowCounter())
 		moon.sleepMillisIdle(1000)
 	end
+	log:info("[fillLevelChecker]: Shutdown")
 end
 
 function filterExprFromTuple(tpl)
@@ -177,40 +182,6 @@ function buildFilterExpr(pkt)
 			" dst host " .. pkt.ip4.dst:getString() .. " dst port " .. pkt.udp:getDstPort()
 end
 
-function TBBAnalyzer(qq, id, hashmap, pipes)
-	local hashmap = hashmap
-	local rxCtr = stats:newManualRxCounter("TBB Analyzer Thread #" .. id, "plain")
-	local epsilon = 2  -- allowed area around the avrg. TLL
-	
-	local tuple = ffi.new("struct ipv4_5tuple")
-	
-	while moon.running() do
-		local storage = qq:peek()
-		for i = 0, storage:size() - 1 do
-			local pkt = storage:getPacket(i)
-			rxCtr:updateWithSize(1, pkt.len)
-			local parsedPkt = pktLib.getUdp4Packet(pkt)
-			tuple.ip_dst = parsedPkt.ip4:getDst()
-			tuple.ip_src = parsedPkt.ip4:getSrc()
-			tuple.port_dst = parsedPkt.udp:getDstPort()
-			tuple.port_src = parsedPkt.udp:getSrcPort()
-			tuple.proto = parsedPkt.ip4:getProtocol()
-			local TTL = parsedPkt.ip4:getTTL()
-			
-			local ano = hashmap:checkAndUpdate(tuple, TTL, epsilon)
-			if ano ~= 0 then
-				local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
-				print(bred("[TBB Analyzer Thread #".. id .."]") .. ": Anomaly detected:", ano, TTL, event.action, event.filter)
-				for _, pipe in ipairs(pipes) do
-					pipe:send(event)
-				end
-			end
-		end
-		storage:release()
-	end
-	rxCtr:finalize()
-end
-
 function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 	local hashmap = hashmap
 	local rxCtr = stats:newManualRxCounter("TBB Tracker Analyzer Thread #" .. id, "plain")
@@ -220,7 +191,10 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 	local acc = flowtracker.createAccessor()
 	
 	while moon.running() do
-		local storage = qq:peek()
+		local storage = qq:tryPeek()
+		if storage == nil then
+			goto continue
+		end
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			rxCtr:updateWithSize(1, pkt.len)
@@ -277,7 +251,7 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 			end
 			-- Parsing ends
 			if not lookup then
-				goto skip
+				goto skipLookup
 			end
 			--local acc = hashmap:access(tuple)
 			hashmap:access2(tuple, acc)
@@ -287,19 +261,22 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 			if ano ~= 0 then
 				ttlData.tracked = true
 				--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
-				local event = {action = "create", filter = filterExprFromTuple(tuple)}
-				print(bred("[TBB Analyzer Thread #".. id .."]: ") .. "Anomalous TTL:", TTL, ano, event.filter)
+				--local event = {action = "create", filter = filterExprFromTuple(tuple)}
+				local event = ev.newEvent(filterExprFromTuple(tuple), ev.create)
+				print(bred("[TBB Analyzer Thread #".. id .."]: ") .. "Anomalous TTL:", TTL, ano, event.filterString)
 				for _, pipe in ipairs(pipes) do
 					pipe:send(event)
 				end
 			end
 			acc:release()
-			::skip::
+			::skipLookup::
 		end
 		storage:release()
+		::continue::
 	end
 	rxCtr:finalize()
 	acc:free()
+	log:info("[Analyzer]: Shutdown")
 end
 
 function dummyAnalyzer(qq, id)
@@ -336,18 +313,19 @@ function continuousDumper(qq, id, path, filterPipe)
 		-- TODO: loop until all messages are read
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
-			if event.action == "create" and ruleSet[event.filter] == nil then
+			if event.action == ev.create and ruleSet[event.id] == nil then
 				local triggerWallTime = wallTime()
 				local pcapFileName = (path .. "/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. ".pcap"):gsub(" ", "_")
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
-				ruleSet[event.filter] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
+				ruleSet[event.id] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
 				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
-			elseif event.action == "delete" and ruleSet[event.filter] ~= nil then
-				if ruleSet[event.filter].pcap then
-					ruleSet[event.filter].pcap:close()
+			elseif event.action == ev.delete and ruleSet[event.id] ~= nil then
+				if ruleSet[event.id].pcap then
+					ruleSet[event.id].pcap:close()
 				end
-				print("Dumper #" .. id .. ": rule deletion:", event.filter)
-				ruleSet[event.filter] = nil
+				log:info("[Dumper %i#]: Rule deletion: %s", id, ecent.filter)
+				--print("Dumper #" .. id .. ": rule deletion:", event.filter)
+				ruleSet[event.id] = nil
 			end
 			
 			-- Update ruleList
@@ -385,5 +363,6 @@ function continuousDumper(qq, id, path, filterPipe)
 			rule.pcap:close()
 		end
 	end
+	log:info("[Dumper]: Shutdown")
 end
 

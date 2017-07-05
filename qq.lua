@@ -33,6 +33,8 @@ ffi.cdef [[
 
 	storage_t* qq_storage_peek(qq_t*);
 
+	storage_t* qq_storage_try_peek(qq_t*);
+
 	size_t qq_get_enqueue_counter(qq_t*);
 
 	size_t qq_get_dequeue_counter(qq_t*);
@@ -98,6 +100,10 @@ end
 
 function qq:tryDequeue()
 	return qqlib.qq_storage_try_dequeue(self)
+end
+
+function qq:tryPeek()
+	return qqlib.qq_storage_try_peek(self)
 end
 
 function qq:enqueue()

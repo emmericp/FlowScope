@@ -641,6 +641,24 @@ namespace QQ {
             return p;
         }
 
+        Ptr<pages_per_bucket>* try_peek(const uint8_t call_priority = 1) {
+            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
+            std::unique_lock<std::mutex> lk(mutex_);
+            if (distance(peek_pos, head) > num_buckets / 2) {
+                peek_pos = wrap(peek_pos + 16);
+            }
+            if (!non_empty.wait_for(lk, std::chrono::milliseconds(10), [&] {
+                return distance(peek_pos, head) > 8; // Wait until peek_pos is more than 8 buckets behind head
+            }))
+                return nullptr;
+            s = storage_in_use.at(peek_pos);
+            peek_pos = wrap(peek_pos + 1);
+            auto p = new Ptr<pages_per_bucket>(*s);
+            lk.unlock();
+            non_empty.notify_one();
+            return p;
+        }
+
         inline bool empty() {
             std::lock_guard<std::mutex> lg(mutex_);
             return head == tail;
