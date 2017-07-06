@@ -315,7 +315,7 @@ function continuousDumper(qq, id, path, filterPipe)
 		if event ~= nil then
 			if event.action == ev.create and ruleSet[event.id] == nil then
 				local triggerWallTime = wallTime()
-				local pcapFileName = (path .. "/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. ".pcap"):gsub(" ", "_")
+				local pcapFileName = path .. ("/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. ".pcap"):gsub(" ", "_")
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
 				ruleSet[event.id] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
 				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
