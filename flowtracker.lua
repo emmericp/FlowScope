@@ -111,7 +111,7 @@ function mod.updateAndCheck(ttlData, ttl, epsilon)
     ttlData.running_sum = ttlData.running_sum + ttl
     ttlData.packets = ttlData.packets + 1
     
-    local avrg = ttlData.running_sum / ttlData.packets
+    local avrg = tonumber(ttlData.running_sum / ttlData.packets)
     if ttl > avrg + epsilon or ttl < avrg - epsilon then
         return avrg
     else
