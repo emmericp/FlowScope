@@ -108,7 +108,7 @@ namespace tbb_wrapper {
              * 
              * Maybe make the swapper a member function so that it can be run in a shared task.
              */
-            constexpr auto swap_interval = std::chrono::seconds(10);
+            constexpr auto swap_interval = std::chrono::seconds(30);
             constexpr auto sleep_step = std::chrono::milliseconds(100);
             std::printf("[Swapper]: Entering wait loop\n");
             while (last_swap + swap_interval > std::chrono::steady_clock::now()) {
