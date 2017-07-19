@@ -28,13 +28,14 @@ function configure(parser)
 	parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default("1"):target("analyzeThreads")
 	parser:option("--dump-threads", "Number of dump threads."):convert(tonumber):default("1"):target("dumperThreads")
 	parser:option("--path", "Path for output pcaps."):default(".")
+	parser:option("--log-level", "Log level"):default("WARN"):target("logLevel")
 	parser:flag("--generate", "Generate traffic instead of reading from a device"):default(False)
 	local args = parser:parse()
 	return args
 end
 
 function master(args)
-	log:setLevel("INFO")
+	log:setLevel(args.logLevel)
 	if not args.generate then
 		for i, dev in ipairs(args.dev) do
 			args.dev[i] = device.config{
@@ -50,7 +51,7 @@ function master(args)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
 			if args.generate then
-				moon.startTask("traffic_generator", qq, i, nil, 50, args.rate)
+				moon.startTask("traffic_generator", args, qq, i, nil, 200, args.rate)
 			else
 				moon.startTask("inserter", dev:getRxQueue(i), qq)
 			end
@@ -60,26 +61,26 @@ function master(args)
 	local pipes = {}
 	for i = 1, args.dumperThreads do
 		pipes[i] = pipe.newSlowPipe()
-		moon.startTask("continuousDumper", qq, i, args.path, pipes[i])
+		moon.startTask("continuousDumper", args, qq, i, args.path, pipes[i])
 	end
 	
 -- 	local tracker = flowtracker.createTBBMapv4(2^20)
 
 	local tracker = flowtracker.createTBBTracker(2^20)
-	moon.startTask("swapper", tracker, pipes)
+	moon.startTask("swapper", args, tracker, pipes)
 	
 	for i = 1, args.analyzeThreads do
 -- 		moon.startTask("dummyAnalyzer", qq, i)
 -- 		moon.startTask("TBBAnalyzer", qq, i, tracker, pipes)
-		moon.startTask("TBBTrackerAnalyzer", qq, i, tracker, pipes)
+		moon.startTask("TBBTrackerAnalyzer", args, qq, i, tracker, pipes)
 	end
 	
 	for i, v in ipairs(pipes) do
 		-- libmoon has no destroy function for pipes
 	end
 	
-	moon.startSharedTask("fillLevelChecker", qq)
-	--moon.startTask("fillLevelChecker", qq)
+	moon.startSharedTask("fillLevelChecker", args, qq)
+	--moon.startTask("fillLevelChecker", args, qq)
 	moon.waitForTasks()
 	tracker:delete()
 	qq:delete()
@@ -92,7 +93,8 @@ function inserter(rxQueue, qq)
 	log:info("[Inserter]: Shutdown")
 end
 
-function swapper(tracker, pipes)
+function swapper(args, tracker, pipes)
+	log:setLevel(args.logLevel)
 	local sz = 256
 	local buf = ffi.new("struct expired_flow4[?]", sz)
 	while moon.running() do
@@ -108,7 +110,8 @@ function swapper(tracker, pipes)
 	log:info("[Swapper]: Shutdown")
 end
 
-function traffic_generator(qq, id, packetSize, newFlowRate, rate)
+function traffic_generator(args, qq, id, packetSize, newFlowRate, rate)
+	log:setLevel(args.logLevel)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
 	local concurrentFlows = 1000
@@ -156,7 +159,8 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	log:info("[Traffic Generator]: Shutdown")
 end
 
-function fillLevelChecker(qq)
+function fillLevelChecker(args, qq)
+	log:setLevel(args.logLevel)
 	while moon.running() do
 		print(green("[QQ] Stored buckets: ") .. qq:size() .. "/" .. qq:capacity() .. green(" Overflows: ") .. qq:getEnqueueOverflowCounter())
 		moon.sleepMillisIdle(1000)
@@ -188,7 +192,8 @@ function filterExprFromTuple(tpl)
 	return s
 end
 
-function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
+function TBBTrackerAnalyzer(args, qq, id, hashmap, pipes)
+	log:setLevel(args.logLevel)
 	local hashmap = hashmap
 	local rxCtr = stats:newManualRxCounter("TBB Tracker Analyzer Thread #" .. id, "plain")
 	local epsilon = 2  -- allowed area around the avrg. TLL
@@ -267,7 +272,7 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 			if ano ~= 0 then
 				ttlData.tracked = true
 				local event = ev.newEvent(filterExprFromTuple(tuple), ev.create)
-				log:warn("[TBB Analyzer Thread #%i]: Anomalous TTL: %i != %i, %s, ts %f", id, TTL, tonumber(ano), event.filter, pkt:getTimestamp())
+				log:warn("[TBB Analyzer Thread #%i]: Anomalous TTL: %i != %i, %s, ts %f", id, TTL, ano, event.filter, pkt:getTimestamp())
 				for _, pipe in ipairs(pipes) do
 					pipe:send(event)
 				end
@@ -283,7 +288,8 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 	log:info("[Analyzer]: Shutdown")
 end
 
-function dummyAnalyzer(qq, id)
+function dummyAnalyzer(args, qq, id)
+	log:setLevel(args.logLevel)
 	local rxCtr = stats:newManualRxCounter("QQ Dummy Analyzer Thread #" .. id, "plain")
 	while moon.running() do
 		local storage = qq:peek()
@@ -296,7 +302,8 @@ function dummyAnalyzer(qq, id)
 	rxCtr:finalize()
 end
 
-function continuousDumper(qq, id, path, filterPipe)
+function continuousDumper(args, qq, id, path, filterPipe)
+	log:setLevel(args.logLevel)
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
