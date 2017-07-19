@@ -15,7 +15,6 @@ local pipe   = require "pipe"
 local timer  = require "timer"
 local flowtracker = require "flowtracker"
 local ev = require "event"
-local prio = require "prioQueue"
 
 local jit = require "jit"
 jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
@@ -175,14 +174,18 @@ function filterExprFromTuple(tpl)
 	ipAddr:set(tpl.ip_dst)
 	s = s .. " dst host " .. ipAddr:getString()
 	s = s .. " dst port " .. tonumber(tpl.port_dst)
-	s = s .. " udp"
-	return s
-end
 
--- TODO
-function buildFilterExpr(pkt)
-	return "src host " .. pkt.ip4.src:getString() .. " src port " .. pkt.udp:getSrcPort() .. 
-			" dst host " .. pkt.ip4.dst:getString() .. " dst port " .. pkt.udp:getDstPort()
+	-- L4 Protocol
+	local proto = tpl.proto
+	if proto == ip.PROTO_UDP then
+		proto = " udp"
+	elseif proto == ip.PROTO_TCP then
+		proto = " tcp"
+	else
+		proto = ""
+	end
+	s = s .. proto
+	return s
 end
 
 function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
@@ -297,7 +300,6 @@ end
 function continuousDumper(qq, id, path, filterPipe)
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
-    local ruleQueue = prio.newPrioQueue()
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
 	local lastTS = 0
 	print(ruleQueue)
@@ -323,8 +325,8 @@ function continuousDumper(qq, id, path, filterPipe)
 			ruleList = {}
 			for k, v in pairs(ruleSet) do
 				if v.timestamp ~= nil and lastTS > v.timestamp then
-					if ruleSet[event.id].pcap then
-						ruleSet[event.id].pcap:close()
+					if ruleSet[k].pcap then
+						ruleSet[k].pcap:close()
 					end
 					log:info("[Dumper %i#]: Expired rule %s, %i > %i", id, k, lastTS, v.timestamp)
 					ruleSet[k] = nil
