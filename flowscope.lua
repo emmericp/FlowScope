@@ -307,6 +307,7 @@ function continuousDumper(qq, id, path, filterPipe)
 	while moon.running() do
 		-- Get new filters
 		-- TODO: loop until all messages are read
+		local needRebuild = false
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
 			print(event.action, event.filter, event.timestamp)
@@ -316,25 +317,32 @@ function continuousDumper(qq, id, path, filterPipe)
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
 				ruleSet[event.id] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
 				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
+				needRebuild = true
 			elseif event.action == ev.delete and ruleSet[event.id] ~= nil then
 				ruleSet[event.id].timestamp = event.timestamp
 				log:info("[Dumper %i#]: Marked rule %s as expired", id, event.id)
 			end
-			
-			-- Update ruleList
-			ruleList = {}
-			for k, v in pairs(ruleSet) do
-				if v.timestamp ~= nil and lastTS > v.timestamp then
-					if ruleSet[k].pcap then
-						ruleSet[k].pcap:close()
-					end
-					log:info("[Dumper %i#]: Expired rule %s, %i > %i", id, k, lastTS, v.timestamp)
-					ruleSet[k] = nil
-				else
-					ruleList[#ruleList+1] = v
+		end
+
+		-- Check for expired rules
+		for k, v in pairs(ruleSet) do
+			if v.timestamp ~= nil and lastTS > v.timestamp then
+				if ruleSet[k].pcap then
+					ruleSet[k].pcap:close()
 				end
+				log:info("[Dumper %i#]: Expired rule %s, %i > %i", id, k, lastTS, v.timestamp)
+				ruleSet[k] = nil
+				needRebuild = true
 			end
-			print("Dumper #" .. id .. ": total number of rules:", #ruleList)
+		end
+
+		-- Update ruleList
+		if needRebuild then
+			ruleList = {}
+			for _, v in pairs(ruleSet) do
+				ruleList[#ruleList+1] = v
+			end
+			log:info("Dumper #%i: total number of rules: %i", id, #ruleList)
 		end
 		
 		local storage = qq:tryDequeue()
