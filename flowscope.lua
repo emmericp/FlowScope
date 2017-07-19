@@ -111,7 +111,7 @@ end
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
-	local concurrentFlows = 100
+	local concurrentFlows = 1000
 	local rate = rate or 20 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
@@ -137,7 +137,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 		repeat
 -- 			pkt.ip4.dst:set(baseIP)
 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows - 1))
-			if math.random(0, 10000000) == 0 then
+			if math.random(0, 50000000) == 0 then
 				pkt.ip4:setTTL(70)
 			else
 				pkt.ip4:setTTL(64)
@@ -259,14 +259,13 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 			if not lookup then
 				goto skipLookup
 			end
-			--local acc = hashmap:access(tuple)
 			hashmap:access2(tuple, acc)
 			local ttlData = acc:get()
+			ttlData.last_seen = pkt.ts_vlan
 			local ano = flowtracker.updateAndCheck(ttlData, TTL, epsilon)
 			--local ano = math.random(0, 10000000) == 0 or 0
 			if ano ~= 0 then
 				ttlData.tracked = true
-				ttlData.last_seen = pkt.ts_vlan
 				local event = ev.newEvent(filterExprFromTuple(tuple), ev.create)
 				log:warn("[TBB Analyzer Thread #%i]: Anomalous TTL: %i != %i, %s, ts %f", id, TTL, tonumber(ano), event.filter, pkt:getTimestamp())
 				for _, pipe in ipairs(pipes) do
@@ -302,7 +301,6 @@ function continuousDumper(qq, id, path, filterPipe)
 	local ruleList = {} -- Build from the ruleSet for performance
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
 	local lastTS = 0
-	print(ruleQueue)
 	
 	while moon.running() do
 		-- Get new filters
