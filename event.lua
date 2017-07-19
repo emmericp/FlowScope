@@ -5,13 +5,13 @@ local mod = {}
 mod.create = 1
 mod.delete = 2
 
-function mod.newEvent(filterString, action, id)
+function mod.newEvent(filterString, action, id, timestamp)
     local id = id or filterString
     if action ~= mod.create and action ~= mod.delete then
-        log:warn("Invalid event action: %i", action)
+        log:error("Invalid event action: %i", action)
         return nil
     end
-    return {action = action, filter = filterString, id = id}
+    return {action = action, filter = filterString, id = id, timestamp = timestamp}
 end
 
 return mod

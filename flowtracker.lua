@@ -14,6 +14,7 @@ ffi.cdef [[
     struct ttl_flow_data {
         uint64_t running_sum;  // Sum of all seen TTL values
         uint64_t packets;      // Number of observed TTL values
+        uint64_t last_seen;    // Timestamp of last packet in flow
         bool tracked;
     } __attribute__((__packed__));
     
@@ -33,6 +34,11 @@ ffi.cdef [[
         uint8_t  proto;
     } __attribute__((__packed__));
     
+    struct expired_flow4 {
+        struct ipv4_5tuple tpl;
+        uint64_t last_seen;
+    } __attribute__((__packed__));
+
     uint32_t ipv4_5tuple_hash(struct ipv4_5tuple* tpl);
     uint32_t ipv6_5tuple_hash(struct ipv6_5tuple* tpl);
     
@@ -55,10 +61,11 @@ ffi.cdef [[
     typedef struct tbb_tracker tbb_tracker;
     typedef struct const_accessor4 const_accessor4;
     typedef struct accessor4 accessor4;
+    typedef struct expired_flow4 expired_flow4;
     tbb_tracker* tbb_tracker_create(size_t pre_alloc);
     void tbb_tracker_clear(tbb_tracker* tr);
     void tbb_tracker_delete(tbb_tracker* tr);
-    size_t tbb_tracker_swapper(tbb_tracker* tr, struct ipv4_5tuple* buf, size_t sz);
+    size_t tbb_tracker_swapper(tbb_tracker* tr, expired_flow4* buf, size_t sz);
     const_accessor4* tbb_tracker_const_access4(tbb_tracker* tr, const struct ipv4_5tuple* tpl);
     const D* tbb_tracker_const_get4(const_accessor4* a);
     void tbb_tracker_const_release4(const_accessor4* a);

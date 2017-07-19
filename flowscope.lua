@@ -15,6 +15,7 @@ local pipe   = require "pipe"
 local timer  = require "timer"
 local flowtracker = require "flowtracker"
 local ev = require "event"
+local prio = require "prioQueue"
 
 local jit = require "jit"
 jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
@@ -34,6 +35,7 @@ function configure(parser)
 end
 
 function master(args)
+	log:setLevel("INFO")
 	if not args.generate then
 		for i, dev in ipairs(args.dev) do
 			args.dev[i] = device.config{
@@ -49,7 +51,7 @@ function master(args)
 	for i, dev in ipairs(args.dev) do
 		for i = 0, args.rxThreads - 1 do
 			if args.generate then
-				moon.startTask("traffic_generator", qq, i, nil, 1, args.rate)
+				moon.startTask("traffic_generator", qq, i, nil, 50, args.rate)
 			else
 				moon.startTask("inserter", dev:getRxQueue(i), qq)
 			end
@@ -92,12 +94,13 @@ function inserter(rxQueue, qq)
 end
 
 function swapper(tracker, pipes)
-	local buf = ffi.new("struct ipv4_5tuple[?]", 128)
+	local sz = 256
+	local buf = ffi.new("struct expired_flow4[?]", sz)
 	while moon.running() do
-		local c = tracker:swapper(buf, 128)
+		local c = tracker:swapper(buf, sz)
 		for i = 0, tonumber(c) - 1 do
-			local event = ev.newEvent(filterExprFromTuple(buf[i]), ev.delete)
-			log:info("[Swapper]: Sending event: %i, %s", event.action, event.filter)
+			local event = ev.newEvent(filterExprFromTuple(buf[i].tpl), ev.delete, nil, tonumber(buf[i].last_seen))
+			log:info("[Swapper]: Sending event: %i, %s %i", event.action, event.filter, event.timestamp)
 			for _, pipe in ipairs(pipes) do
 				pipe:send(event)
 			end
@@ -109,7 +112,7 @@ end
 function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	local packetSize = packetSize or 64
 	local newFlowRate = newFlowRate or 0.5 -- new flows/s
-	local concurrentFlows = 1000
+	local concurrentFlows = 100
 	local rate = rate or 20 -- buckets/s
 	local baseIP = parseIPAddress("10.0.0.2")
 	local txCtr = stats:newManualTxCounter("Generator Thread #" .. id, "plain")
@@ -131,7 +134,7 @@ function traffic_generator(qq, id, packetSize, newFlowRate, rate)
 	
 	while moon.running() do
 		local s1 = qq:enqueue()
-		local ts = moon.getTime()
+		local ts = moon.getTime() * 10^6
 		repeat
 -- 			pkt.ip4.dst:set(baseIP)
 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows - 1))
@@ -260,10 +263,9 @@ function TBBTrackerAnalyzer(qq, id, hashmap, pipes)
 			--local ano = math.random(0, 10000000) == 0 or 0
 			if ano ~= 0 then
 				ttlData.tracked = true
-				--local event = {action = "create", filter = buildFilterExpr(parsedPkt)}
-				--local event = {action = "create", filter = filterExprFromTuple(tuple)}
+				ttlData.last_seen = pkt.ts_vlan
 				local event = ev.newEvent(filterExprFromTuple(tuple), ev.create)
-				print(bred("[TBB Analyzer Thread #".. id .."]: ") .. "Anomalous TTL:", TTL, ano, event.filterString)
+				log:warn("[TBB Analyzer Thread #%i]: Anomalous TTL: %i != %i, %s, ts %f", id, TTL, tonumber(ano), event.filter, pkt:getTimestamp())
 				for _, pipe in ipairs(pipes) do
 					pipe:send(event)
 				end
@@ -295,24 +297,17 @@ end
 function continuousDumper(qq, id, path, filterPipe)
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
+    local ruleQueue = prio.newPrioQueue()
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
-	local ruleExpirationTimer = timer:new(30)
+	local last_ts = 0
+	print(ruleQueue)
 	
 	while moon.running() do
--- 		if ruleExpirationTimer:expired() then
--- 			print("Filter rules expired")
--- 			for _, rule in ipairs(ruleList) do
--- 				if rule.pcap then
--- 					rule.pcap:close()
--- 				end
--- 			end
--- 			ruleExpirationTimer:reset()
--- 		end
-		
 		-- Get new filters
 		-- TODO: loop until all messages are read
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
+			print(event.action, event.filter, event.timestamp)
 			if event.action == ev.create and ruleSet[event.id] == nil then
 				local triggerWallTime = wallTime()
 				local pcapFileName = path .. ("/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. ".pcap"):gsub(" ", "_")
@@ -323,7 +318,7 @@ function continuousDumper(qq, id, path, filterPipe)
 				if ruleSet[event.id].pcap then
 					ruleSet[event.id].pcap:close()
 				end
-				log:info("[Dumper %i#]: Rule deletion: %s", id, ecent.filter)
+				log:info("[Dumper %i#]: Rule deletion: %s", id, event.filter)
 				--print("Dumper #" .. id .. ": rule deletion:", event.filter)
 				ruleSet[event.id] = nil
 			end
@@ -343,6 +338,7 @@ function continuousDumper(qq, id, path, filterPipe)
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
+			last_ts = pkt.ts_vlan
 			rxCtr:updateWithSize(1, pkt:getLength())
 			
 			for _, rule in ipairs(ruleList) do
@@ -358,9 +354,11 @@ function continuousDumper(qq, id, path, filterPipe)
 		::skip::
 	end
 	rxCtr:finalize()
-	for _, rule in ipairs(ruleSet) do
+	for _, rule in pairs(ruleSet) do
 		if rule.pcap then
 			rule.pcap:close()
+		else
+			log:error("[Dumper #%i]: Rule got no pcap", id)
 		end
 	end
 	log:info("[Dumper]: Shutdown")

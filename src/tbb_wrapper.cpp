@@ -69,6 +69,11 @@ namespace tbb_wrapper {
     using tbb_map_v4 = tbb::concurrent_hash_map<v4tpl, D, tbb_wrapper::v4_crc_hash>;
     using tbb_map_v6 = tbb::concurrent_hash_map<v6tpl, D, hash_v6>;
     
+    struct expired_flow4 {
+        v4tpl tpl;
+        std::uint64_t last_seen;
+    } __attribute__((__packed__));
+
     /*
      * Keep interface generic, split value access and modification
      * Using flowscope with own datatype should be possible with only changing D
@@ -84,8 +89,8 @@ namespace tbb_wrapper {
             delete current4;
             delete old4;
         }
-        
-        std::size_t iterative_swapper(v4tpl* buf, std::size_t sz) {
+
+        std::size_t iterative_swapper(expired_flow4* buf, std::size_t sz) {
             /*
              * Idea:
              *  1. Wait 30 sec since last swap
@@ -126,8 +131,10 @@ namespace tbb_wrapper {
                         break;
                     }
                     if (it->second.tracked) {
-                        buf[i++] = it->first;
+                        buf[i].tpl = it->first;
+                        buf[i].last_seen = it->second.last_seen;
                         ++purge_counter;
+                        ++i;
                     }
                     ++expire_counter;
                 }
@@ -165,7 +172,7 @@ extern "C" {
         delete tr;
     }
     
-    std::size_t tbb_tracker_swapper(tbb_tracker* tr, v4tpl* buf, std::size_t sz) {
+    std::size_t tbb_tracker_swapper(tbb_tracker* tr, expired_flow4* buf, std::size_t sz) {
         return tr->iterative_swapper(buf, sz);
     }
     
