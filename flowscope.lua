@@ -29,6 +29,7 @@ function configure(parser)
 	parser:option("--dump-threads", "Number of dump threads."):convert(tonumber):default("1"):target("dumperThreads")
 	parser:option("--path", "Path for output pcaps."):default(".")
 	parser:option("--log-level", "Log level"):default("WARN"):target("logLevel")
+	parser:option("--max-rules", "Maximum number of rules"):convert(tonumber):default("100"):target("maxRules")
 	parser:flag("--generate", "Generate traffic instead of reading from a device"):default(False)
 	local args = parser:parse()
 	return args
@@ -140,7 +141,7 @@ function traffic_generator(args, qq, id, packetSize, newFlowRate, rate)
 		repeat
 -- 			pkt.ip4.dst:set(baseIP)
 			pkt.ip4.dst:set(baseIP + math.random(0, concurrentFlows - 1))
-			if math.random(0, 50000000) == 0 then
+			if math.random(0, 20000000) == 0 then
 				pkt.ip4:setTTL(70)
 			else
 				pkt.ip4:setTTL(64)
@@ -306,6 +307,7 @@ function continuousDumper(args, qq, id, path, filterPipe)
 	log:setLevel(args.logLevel)
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
+	local maxRules = args.maxRules
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
 	local lastTS = 0
 	
@@ -315,8 +317,8 @@ function continuousDumper(args, qq, id, path, filterPipe)
 		local needRebuild = false
 		local event = filterPipe:tryRecv(0)
 		if event ~= nil then
-			print(event.action, event.filter, event.timestamp)
-			if event.action == ev.create and ruleSet[event.id] == nil then
+			log:debug("[Dumper %i]: Got event %i, %s, %i", id, event.action, event.filter, event.timestamp or 0)
+			if event.action == ev.create and ruleSet[event.id] == nil and #ruleList < maxRules then
 				local triggerWallTime = wallTime()
 				local pcapFileName = path .. ("/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. " part " .. id .. ".pcap"):gsub(" ", "_")
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
