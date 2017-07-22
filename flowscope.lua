@@ -305,6 +305,7 @@ end
 
 function continuousDumper(args, qq, id, path, filterPipe)
 	log:setLevel(args.logLevel)
+	pcap:setInitialFilesize(2^21) -- 2 MiB
 	local ruleSet = {} -- Used to maintain the rules
 	local ruleList = {} -- Build from the ruleSet for performance
 	local maxRules = args.maxRules
