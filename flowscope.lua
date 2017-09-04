@@ -331,7 +331,8 @@ function continuousDumper(args, qq, id, path, filterPipe)
 	local maxRules = args.maxRules
 	local rxCtr = stats:newManualRxCounter("Dumper Thread   #" .. id, "plain")
 	local lastTS = 0
-
+	
+	require("jit.p").start("l2s")
 	while moon.running() do
 		-- Get new filters
 		-- TODO: loop until all messages are read
@@ -344,7 +345,7 @@ function continuousDumper(args, qq, id, path, filterPipe)
 				local pcapFileName = path .. ("/FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.filter .. " part " .. id .. ".pcap"):gsub(" ", "_")
 				local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
 				ruleSet[event.id] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
-				--ruleSet[event.filter] = {pfFn = function() end, pcap = nil}
+				--ruleSet[event.filter] = {pfFn = function() return false end, pcap = nil}
 				needRebuild = true
 			elseif event.action == ev.delete and ruleSet[event.id] ~= nil then
 				ruleSet[event.id].timestamp = event.timestamp
@@ -368,26 +369,28 @@ function continuousDumper(args, qq, id, path, filterPipe)
 		if needRebuild then
 			ruleList = {}
 			for _, v in pairs(ruleSet) do
-				ruleList[#ruleList+1] = v
+				ruleList[#ruleList+1] = {v.pfFn, v.pcap}
 			end
 			log:info("Dumper #%i: total number of rules: %i", id, #ruleList)
 		end
-
 		local storage = qq:tryDequeue()
 		if storage == nil then
 			goto skip
 		end
+		rxCtr:updateWithSize(storage:size(), 0)
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
+			local data = pkt.data
+			local len = pkt.len
 			lastTS = tonumber(pkt.ts_vlan)
-			rxCtr:updateWithSize(1, pkt:getLength())
-
-			for _, rule in ipairs(ruleList) do
-				if rule.pfFn(pkt.data, pkt.len) then
--- 					print("Dumper #" .. id .. ": Got match!")
-					if rule.pcap then
-						rule.pcap:write(timestamp, pkt.data, pkt.len)
+			-- Do not use ipairs() here
+			for j = 1, #ruleList do
+				local filter = ruleList[j][1]
+				local pcap = ruleList[j][2]
+				if filter(data, len) then
+					if pcap then
+						pcap:write(timestamp, data, len)
 					end
 				end
 			end
@@ -395,6 +398,7 @@ function continuousDumper(args, qq, id, path, filterPipe)
 		storage:release()
 		::skip::
 	end
+	require("jit.p").stop()
 	rxCtr:finalize()
 	for _, rule in pairs(ruleSet) do
 		if rule.pcap then
