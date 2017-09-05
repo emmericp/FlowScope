@@ -33,6 +33,7 @@ SET(FLOWTRACKER_SRC
     src/tuple.hpp
     src/tuple.cpp
     src/tbb_wrapper.cpp
+    src/var_hashmap.cpp
 )
 ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
 TARGET_LINK_LIBRARIES(flowtracker ${TBB_IMPORTED_TARGETS})
