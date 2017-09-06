@@ -1,6 +1,7 @@
 local ffi = require "ffi"
 local C = ffi.C
-local flowtrackerlib = ffi.load("build/flowtracker")
+local flowtrackerlib = ffi.load("../build/flowtracker")
+local hmap = require "hmap"
 local lm = require "libmoon"
 local log = require "log"
 
@@ -19,6 +20,8 @@ function getTable(valueSize)
         return flowtrackerlib.hmap32_create()
     elseif valueSize <= 64 then
         return flowtrackerlib.hmap64_create()
+    elseif valueSize <= 128 then
+        return flowtrackerlib.hmap128_create()
     else
         log:error("Values of size %d are not supported", valueSize)
         return nil
@@ -30,9 +33,12 @@ function mod.new(args)
     -- in C++: force template instantiation of several hashtable types (4,8,16,32,64,....?) bytes value?
     -- get appropriate hashtables
     -- check parameters here
+    for k,v in pairs(args) do
+        log:info("%s: %s", k, v)
+    end
     local obj = setmetatable(args, flowtracker)
     obj.table4 = getTable(ffi.sizeof(obj.stateType))
-    obj.defaultState = obj.defaultState or ffi.new(obj.stateType),
+    obj.defaultState = obj.defaultState or ffi.new(obj.stateType)
     lm.startTask("__FLOWTRACKER_SWAPPER", obj)
     return obj
 end
