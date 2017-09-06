@@ -46,4 +46,7 @@ function master(args)
     end
     device.waitForLinks()
     -- end wrapped part
+    lm.waitForTasks()
+    tracker:delete()
+    log:info("[master]: Shutdown")
 end
