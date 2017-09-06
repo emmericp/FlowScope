@@ -22,22 +22,9 @@ function configure(parser)
     return args
 end
 
-function assertValidAnalysisModule(module)
-    if module.handleIp4Packet == nil then
-        log:error("Module has no handleIp4Packet function")
-    end
-    if module.handleIp4Timeout == nil then
-        log:error("Module has no handleIp4Timeout function")
-    end
-    if module.stateType == nil then
-        log:error("Module has no stateType")
-    end
-end
 
 function master(args)
     local userModule = loadfile(args.module)()
-    assertValidAnalysisModule(userModule)
-
     local tracker = flowtracker.new {
         stateType = userModule.stateType,
         ip4Handler = userModule.handleIp4Packet,

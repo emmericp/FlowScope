@@ -14,10 +14,21 @@ function mod.new(args)
     -- get size of stateType and round up to something
     -- in C++: force template instantiation of several hashtable types (4,8,16,32,64,....?) bytes value?
     -- get appropriate hashtables
-    -- check parameters here
+
+    -- Check parameters
     for k,v in pairs(args) do
         log:info("%s: %s", k, v)
     end
+    if args.ip4Handler == nil then
+        log:error("Module has no ip4Handler")
+    end
+    if args.ip4TimeoutHandler == nil then
+        log:error("Module has no ip4TimeoutHandler")
+    end
+    if args.stateType == nil then
+        log:error("Module has no stateType")
+    end
+
     local obj = setmetatable(args, flowtracker)
     obj.table4 = hmap.createTable(ffi.sizeof(obj.stateType))
     obj.defaultState = obj.defaultState or ffi.new(obj.stateType)
