@@ -14,6 +14,9 @@ ffi.cdef [[
 	};
 ]]
 
+-- Export name of struct
+module.stateType = "struct my_flow_state"
+
 -- state starts out empty if it doesn't exist yet; buf is whatever the device queue or QQ gives us
 function module.handleIp4Packet(tuple, state, buf, isFirstPacket)
     -- implicit lock by TBB
