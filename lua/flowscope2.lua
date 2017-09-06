@@ -8,7 +8,7 @@ function configure(parser)
     parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)
     parser:option("--size", "Storage capacity of the in-memory ring buffer in GiB."):convert(tonumber):default("8")
     parser:option("--rate", "Rate of the generated traffic in buckets/s."):convert(tonumber):default("10")
-    parser:option("--rx-threads", "Number of rx threads per device. If --generate is give, then number of traffic generator threads."):convert(tonumber):default("1"):target("rxThreads")
+    parser:option("--rx-threads", "Number of rx threads per device. If --generate is given, then number of traffic generator threads."):convert(tonumber):default("1"):target("rxThreads")
     parser:option("--analyze-threads", "Number of analyzer threads."):convert(tonumber):default("1"):target("analyzeThreads")
     parser:option("--dump-threads", "Number of dump threads."):convert(tonumber):default("1"):target("dumperThreads")
     parser:option("--path", "Path for output pcaps."):default(".")
@@ -38,6 +38,13 @@ function master(args)
     local userModule = loadfile(args.module)()
     assertValidAnalysisModule(userModule)
 
+    local tracker = flowtracker.new {
+        stateType = userModule.stateType,
+        ip4Handler = userModule.handleIp4Packet,
+        ip4TimeoutHandler = userModule.handleIp4Timeout,
+        -- default = ffi.new(userModule.stateType, { other defaults go here })
+    }
+
     -- this part should be wrapped by flowscope and exposed via CLI arguments
     for i, dev in ipairs(args.dev) do
         args.dev[i] = device.config{
@@ -45,19 +52,11 @@ function master(args)
             rxQueues = args.rxThreads,
             rssQueues = args.rxThreads
         }
+        for i = 0, args.rxThreads do
+            -- get from QQ or from a device queue
+            lm.startTask(flowtracker.analyzerTask, tracker, args.dev[i]:getRxQueue(i))
+        end
     end
     device.waitForLinks()
-
-    for i = 0, 3 do
-        -- get from QQ or from a device queue
-        lm.startTask(flowtracker.analyzerTask, tracker, dev:getRxQueue(i))
-    end
     -- end wrapped part
-
-    local tracker = flowtracker.new {
-        stateType = userModule.stateType,
-        ip4Handler = userModule.handleIp4Packet,
-        ip4TimeoutHandler = userModule.handleIp4Timeout,
-        -- default = ffi.new("struct my_flow_state", { other defaults go here })
-    }
 end
