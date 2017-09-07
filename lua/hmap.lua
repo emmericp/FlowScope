@@ -50,15 +50,15 @@ hmap128.__index = hmap128
 ffi.metatype("hmap128", hmap128)
 
 function hmap128:clear()
-    flowtrackerlib.hmap8_clear(self)
+    flowtrackerlib.hmap128_clear(self)
 end
 
 function hmap128:delete()
-    flowtrackerlib.hmap8_delete(self)
+    flowtrackerlib.hmap128_delete(self)
 end
 
 function hmap128:access(a, tpl)
-    flowtrackerlib.hmap8_access(self, a, tpl)
+    flowtrackerlib.hmap128_access(self, a, tpl)
 end
 
 local hmap128Accessor = {}
@@ -66,19 +66,19 @@ hmap128Accessor.__index = hmap128Accessor
 ffi.metatype("hmap128_accessor", hmap128Accessor)
 
 function hmap128.newAccessor()
-    return flowtrackerlib.hmap8_new_accessor()
+    return flowtrackerlib.hmap128_new_accessor()
 end
 
 function hmap128Accessor:get()
-    return flowtrackerlib.hmap8_accessor_get_value(self)
+    return flowtrackerlib.hmap128_accessor_get_value(self)
 end
 
 function hmap128Accessor:free()
-    return flowtrackerlib.hmap8_accessor_free(self)
+    return flowtrackerlib.hmap128_accessor_free(self)
 end
 
 function hmap128Accessor:release()
-    return flowtrackerlib.hmap8_accessor_release(self)
+    return flowtrackerlib.hmap128_accessor_release(self)
 end
 
 return module
