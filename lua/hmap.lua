@@ -53,7 +53,7 @@ function makeHashmapFor(size)
         flowtrackerlib["hmap" .. size .. "_delete"](self)
     end
     function map:access(a, tpl)
-        flowtrackerlib["hmap" .. size .. "_access"](self, a, tpl)
+        return flowtrackerlib["hmap" .. size .. "_access"](self, a, tpl)
     end
     function map.newAccessor()
         return flowtrackerlib["hmap" .. size .. "_new_accessor"]()
