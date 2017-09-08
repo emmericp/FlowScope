@@ -6,8 +6,8 @@ local hmap = require "hmap"
 local lm = require "libmoon"
 local log = require "log"
 local pktLib = require "packet"
-local eth    = require "proto.ethernet"
-local ip     = require "proto.ip4"
+local eth = require "proto.ethernet"
+local ip = require "proto.ip4"
 
 local mod = {}
 
@@ -20,7 +20,7 @@ function mod.new(args)
     -- get appropriate hashtables
 
     -- Check parameters
-    for k,v in pairs(args) do
+    for k, v in pairs(args) do
         log:info("%s: %s", k, v)
     end
     if args.stateType == nil then
@@ -36,33 +36,33 @@ function mod.new(args)
 end
 
 local function extractTuple(buf, tuple)
-			local ethPkt = pktLib.getEthernetPacket(buf)
-			if ethPkt.eth:getType() == eth.TYPE_IP then
-				-- actual L4 type doesn't matter
-				local parsedPkt = pktLib.getUdp4Packet(buf)
-				tuple.ip_dst = parsedPkt.ip4:getDst()
-				tuple.ip_src = parsedPkt.ip4:getSrc()
-				TTL = parsedPkt.ip4:getTTL()
-				if parsedPkt.ip4:getProtocol() == ip.PROTO_UDP then
-					tuple.port_dst = parsedPkt.udp:getDstPort()
-					tuple.port_src = parsedPkt.udp:getSrcPort()
-					tuple.proto = parsedPkt.ip4:getProtocol()
-					return true
-				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
-					-- port at the same position as UDP
-					tuple.port_dst = parsedPkt.udp:getDstPort()
-					tuple.port_src = parsedPkt.udp:getSrcPort()
-					tuple.proto = parsedPkt.ip4:getProtocol()
-					return true
-				elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
-					-- port at the same position as UDP
-					tuple.port_dst = parsedPkt.udp:getDstPort()
-					tuple.port_src = parsedPkt.udp:getSrcPort()
-					tuple.proto = parsedPkt.ip4:getProtocol()
-					return true
-				end
-		end
-	return false
+    local ethPkt = pktLib.getEthernetPacket(buf)
+    if ethPkt.eth:getType() == eth.TYPE_IP then
+        -- actual L4 type doesn't matter
+        local parsedPkt = pktLib.getUdp4Packet(buf)
+        tuple.ip_dst = parsedPkt.ip4:getDst()
+        tuple.ip_src = parsedPkt.ip4:getSrc()
+        local TTL = parsedPkt.ip4:getTTL()
+        if parsedPkt.ip4:getProtocol() == ip.PROTO_UDP then
+            tuple.port_dst = parsedPkt.udp:getDstPort()
+            tuple.port_src = parsedPkt.udp:getSrcPort()
+            tuple.proto = parsedPkt.ip4:getProtocol()
+            return true
+        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
+            -- port at the same position as UDP
+            tuple.port_dst = parsedPkt.udp:getDstPort()
+            tuple.port_src = parsedPkt.udp:getSrcPort()
+            tuple.proto = parsedPkt.ip4:getProtocol()
+            return true
+        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
+            -- port at the same position as UDP
+            tuple.port_dst = parsedPkt.udp:getDstPort()
+            tuple.port_src = parsedPkt.udp:getSrcPort()
+            tuple.proto = parsedPkt.ip4:getProtocol()
+            return true
+        end
+    end
+    return false
 end
 
 function flowtracker:analyzer(userModule, queue)
@@ -78,18 +78,18 @@ function flowtracker:analyzer(userModule, queue)
         for _, buf in ipairs(bufs) do
             -- also handle IPv4/6/whatever
             local success = extractTuple(buf, tuple)
-	    if success then
-	            -- copy-constructed
-	            local isNew = self.table4:access(accessor, tuple)
-	            local valuePtr = accessor:get()
-	            if isNew then
-	                 C.memcpy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-        	    end
-        	    handler4(tuple, valuePtr, buf, isNew)
-        	    accessor:release()
-	    end
+            if success then
+                -- copy-constructed
+                local isNew = self.table4:access(accessor, tuple)
+                local valuePtr = accessor:get()
+                if isNew then
+                    C.memcpy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
+                end
+                handler4(tuple, valuePtr, buf, isNew)
+                accessor:release()
+            end
         end
-	bufs:free(rx)
+        bufs:free(rx)
     end
     accessor:free()
 end
