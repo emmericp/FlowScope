@@ -4,6 +4,9 @@ local ffi = require "ffi"
 local log = require "log"
 local flowtracker = require "flowtracker2"
 
+local jit = require "jit"
+jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
+
 function configure(parser)
     parser:argument("module", "Path to user-defined analysis module")
     parser:argument("dev", "Devices to use."):args("+"):convert(tonumber)

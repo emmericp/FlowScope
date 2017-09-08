@@ -80,6 +80,7 @@ function flowtracker:analyzer(userModule, queue)
     local rxCtr = stats:newPktRxCounter("Analyzer")
     -- FIXME: would be nice to make this customizable as well?
     local tuple = ffi.new("struct ipv4_5tuple")
+    --require("jit.p").start("a")
     while lm.running() do
         local rx = queue:tryRecv(bufs)
         for i = 1, rx do
@@ -90,10 +91,11 @@ function flowtracker:analyzer(userModule, queue)
             if success then
                 -- copy-constructed
                 local isNew = self.table4:access(accessor, tuple)
-                local valuePtr = ffi.cast(stateType, accessor:get())
+                local t = accessor:get()
+                local valuePtr = ffi.cast(stateType, t)
                 if isNew then
                     ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-                    log:info("New flow! %s", tuple)
+                    --log:info("New flow! %s", tuple)
                 end
                 handler4(tuple, valuePtr, buf, isNew)
                 accessor:release()
@@ -102,7 +104,9 @@ function flowtracker:analyzer(userModule, queue)
         bufs:free(rx)
         rxCtr:update()
     end
+    --require("jit.p").stop()
     accessor:free()
+    rxCtr:finalize()
 end
 
 function flowtracker:delete()
