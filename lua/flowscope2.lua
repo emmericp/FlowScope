@@ -1,6 +1,7 @@
 local lm = require "libmoon"
 local device = require "device"
 local ffi = require "ffi"
+local log = require "log"
 local flowtracker = require "flowtracker2"
 
 function configure(parser)

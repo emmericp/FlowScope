@@ -5,6 +5,7 @@ local flowtrackerlib = ffi.load("../build/flowtracker")
 local hmap = require "hmap"
 local lm = require "libmoon"
 local log = require "log"
+local stats = require "stats"
 local pktLib = require "packet"
 local eth = require "proto.ethernet"
 local ip = require "proto.ip4"
@@ -61,37 +62,51 @@ local function extractTuple(buf, tuple)
             tuple.proto = parsedPkt.ip4:getProtocol()
             return true
         end
+    else
+        log:info("Packet not IP")
     end
     return false
 end
 
 function flowtracker:analyzer(userModule, queue)
     userModule = loadfile(userModule)()
+    -- Cast back to correct type
+    local stateType = ffi.typeof(userModule.stateType .. "*")
+    self.defaultState = ffi.cast(stateType, self.defaultState)
     local handler4 = userModule.handleIp4Packet
     assert(handler4)
     local accessor = self.table4.newAccessor()
     local bufs = memory.bufArray()
+    local rxCtr = stats:newPktRxCounter("Analyzer")
     -- FIXME: would be nice to make this customizable as well?
     local tuple = ffi.new("struct ipv4_5tuple")
     while lm.running() do
         local rx = queue:tryRecv(bufs)
-        for _, buf in ipairs(bufs) do
+        for i = 1, rx do
+            local buf = bufs[i]
+            rxCtr:countPacket(buf)
             -- also handle IPv4/6/whatever
             local success = extractTuple(buf, tuple)
             if success then
                 -- copy-constructed
                 local isNew = self.table4:access(accessor, tuple)
-                local valuePtr = accessor:get()
+                local valuePtr = ffi.cast(stateType, accessor:get())
                 if isNew then
-                    C.memcpy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
+                    ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
+                    log:info("New flow! %s", tuple)
                 end
                 handler4(tuple, valuePtr, buf, isNew)
                 accessor:release()
             end
         end
         bufs:free(rx)
+        rxCtr:update()
     end
     accessor:free()
+end
+
+function flowtracker:delete()
+    self.table4:delete()
 end
 
 -- usual libmoon threading magic
