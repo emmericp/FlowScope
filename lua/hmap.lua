@@ -43,6 +43,38 @@ function module.createTable(valueSize)
     end
 end
 
+function makeHashmapFor(size)
+    local map = {}
+    map.__index = map
+    function map:clear()
+        flowtrackerlib["hmap" .. size .. "_clear"](self)
+    end
+    function map:delete()
+        flowtrackerlib["hmap" .. size .. "_delete"](self)
+    end
+    function map:access(a, tpl)
+        flowtrackerlib["hmap" .. size .. "_access"](self, a, tpl)
+    end
+    function map.newAccessor()
+        return flowtrackerlib["hmap" .. size .. "_new_accessor"]()
+    end
+    local accessor = {}
+    accessor.__index = accessor
+    function accessor:get()
+        return flowtrackerlib["hmap" .. size .. "_accessor_get_value"](self)
+    end
+    function accessor:free()
+        return flowtrackerlib["hmap" .. size .. "_accessor_free"](self)
+    end
+    function accessor:release()
+        return flowtrackerlib["hmap" .. size .. "_accessor_release"](self)
+    end
+    ffi.metatype("hmap" .. size .. "_accessor", accessor)
+    ffi.metatype("hmap" .. size, map)
+    return map
+end
+
+local hmap8 = makeHashmapFor(8)
 
 -- This should be generate dynamically for all sizes
 local hmap128 = {}
