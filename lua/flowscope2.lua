@@ -31,7 +31,7 @@ function master(args)
     local userModule = loadfile(args.module)()
     local tracker = flowtracker.new {
         stateType = userModule.stateType,
-        -- default = ffi.new(userModule.stateType, { other defaults go here })
+        defaultState = userModule.defaultState or {}
     }
 
     -- this part should be wrapped by flowscope and exposed via CLI arguments

@@ -10,6 +10,7 @@ local pktLib = require "packet"
 local eth = require "proto.ethernet"
 local ip = require "proto.ip4"
 
+
 local mod = {}
 
 local flowtracker = {}
@@ -26,12 +27,17 @@ function mod.new(args)
     end
     if args.stateType == nil then
         log:error("Module has no stateType")
+        return nil
     end
 
     local obj = setmetatable(args, flowtracker)
     obj.table4 = hmap.createTable(ffi.sizeof(obj.stateType))
-    -- FIXME: ffi.new is garbage collected, can't be used here!
-    obj.defaultState = ffi.cast("void*", obj.defaultState or ffi.new(obj.stateType))
+    -- Create temporary object with zero bytes or user-defined initializers
+    local tmp = ffi.new(obj.stateType, obj.defaultState)
+    -- Allocate persistent (non-GC) memory
+    obj.defaultState = memory.alloc("void*", ffi.sizeof(obj.stateType))
+    -- Make temporary object persistent
+    ffi.copy(obj.defaultState, tmp, ffi.sizeof(obj.stateType))
     --lm.startTask("__FLOWTRACKER_SWAPPER", obj)
     return obj
 end
@@ -110,6 +116,7 @@ function flowtracker:analyzer(userModule, queue)
 end
 
 function flowtracker:delete()
+    memory.free(self.defaultState)
     self.table4:delete()
 end
 

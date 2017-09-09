@@ -17,6 +17,10 @@ ffi.cdef [[
 -- Export name of struct
 module.stateType = "struct my_flow_state"
 
+-- Custom default state for new flows
+-- See ffi.new() for table initializer rules
+module.defaultState = {packet_counter = 123, some_flags = 0xab}
+
 -- state starts out empty if it doesn't exist yet; buf is whatever the device queue or QQ gives us
 function module.handleIp4Packet(tuple, state, buf, isFirstPacket)
     -- implicit lock by TBB
