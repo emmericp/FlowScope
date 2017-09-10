@@ -36,7 +36,11 @@ end
 -- Function that gets called in regular intervals to decide if a flow is still active
 -- Returns true for flows that are expired, false for active flows
 function module.checkExpiry(tuple, state)
-    return false
+    if math.random(0, 200) == 0 then
+        return true
+    else
+        return false
+    end
 end
 
 -- Set the interval in which the check function should be called
