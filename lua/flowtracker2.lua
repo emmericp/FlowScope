@@ -160,27 +160,27 @@ function flowtracker:checker(userModule)
                 --print("checker", newFlow)
                 addToList(newFlow)
             end
-            if checkTimer:expired() then
-                local t1 = time()
-                local purged, keep = 0, 0
-                for i = #flows, 1, -1 do
-                    local flow = flows[i]
-                    local isNew = self.table4:access(accessor4, flow)
-                    assert(isNew == false) -- Must hold or we have an error
-                    local valuePtr = ffi.cast(stateType, accessor4:get())
-                    if userModule.checkExpiry(flow, valuePtr) then
-                        purged = purged + 1
-                        removeFromList(i)
-                        self.table4:erase(accessor4)
-                    else
-                        keep = keep + 1
-                    end
-                    accessor4:release()
+        end
+        if checkTimer:expired() then
+            local t1 = time()
+            local purged, keep = 0, 0
+            for i = #flows, 1, -1 do
+                local flow = flows[i]
+                local isNew = self.table4:access(accessor4, flow)
+                assert(isNew == false) -- Must hold or we have an error
+                local valuePtr = ffi.cast(stateType, accessor4:get())
+                if userModule.checkExpiry(flow, valuePtr) then
+                    purged = purged + 1
+                    removeFromList(i)
+                    self.table4:erase(accessor4)
+                else
+                    keep = keep + 1
                 end
-                local t2 = time()
-                log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
-                checkTimer:reset()
+                accessor4:release()
             end
+            local t2 = time()
+            log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
+            checkTimer:reset()
         end
     end
     accessor4:free()
