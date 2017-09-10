@@ -61,6 +61,10 @@ using namespace var_hash_map;
     } \
     std::uint8_t* hmap##size##_accessor_get_value(hmap##size::accessor* a) { \
         return (*a)->second.data(); \
+    } \
+    bool hmap##size##_erase(hmap##size* map, hmap##size::accessor* a) { \
+        if (a->empty()) std::terminate();\
+        return map->erase(*a); \
     }
 
 MAP_IMPL(8)
