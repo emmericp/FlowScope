@@ -31,7 +31,8 @@ function master(args)
     local userModule = loadfile(args.module)()
     local tracker = flowtracker.new {
         stateType = userModule.stateType,
-        defaultState = userModule.defaultState or {}
+        defaultState = userModule.defaultState or {},
+        checkInterval = userModule.checkInterval or 30
     }
 
     -- this part should be wrapped by flowscope and exposed via CLI arguments
@@ -41,10 +42,14 @@ function master(args)
             rxQueues = args.rxThreads,
             rssQueues = args.rxThreads
         }
+        -- Create analyzers
         for threadId = 0, args.rxThreads - 1 do
             -- get from QQ or from a device queue
-            lm.startTask(flowtracker.analyzerTask, tracker, args.module, args.dev[i]:getRxQueue(threadId))
+            tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
+            --lm.startTask(flowtracker.analyzerTask, tracker, args.module, args.dev[i]:getRxQueue(threadId))
         end
+        -- Start checker, has to done after the analyzers/pipes are created
+        tracker:startChecker(args.module)
     end
     device.waitForLinks()
     -- end wrapped part

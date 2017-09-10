@@ -9,7 +9,8 @@ local stats = require "stats"
 local pktLib = require "packet"
 local eth = require "proto.ethernet"
 local ip = require "proto.ip4"
-
+local pipe = require "pipe"
+local timer = require "timer"
 
 local mod = {}
 
@@ -38,8 +39,24 @@ function mod.new(args)
     obj.defaultState = memory.alloc("void*", ffi.sizeof(obj.stateType))
     -- Make temporary object persistent
     ffi.copy(obj.defaultState, tmp, ffi.sizeof(obj.stateType))
-    --lm.startTask("__FLOWTRACKER_SWAPPER", obj)
+
+    -- Setup expiry checker pipes
+    obj.pipes = {}
+
+    --lm.startTask("__FLOWTRACKER_CHECKER", obj)
     return obj
+end
+
+-- Starts a new analyzer
+function flowtracker:startNewAnalyzer(userModule, queue)
+    self.pipes[#self.pipes + 1] = pipe.newFastPipe()
+    lm.startTask("__FLOWTRACKER_ANALYZER", self, userModule, queue)
+end
+
+-- Starts the flow expiry checker
+-- Must only be called after all analyzers are set up
+function flowtracker:startChecker(userModule)
+    lm.startTask("__FLOWTRACKER_CHECKER", self, userModule)
 end
 
 local function extractTuple(buf, tuple)
@@ -76,6 +93,8 @@ end
 
 function flowtracker:analyzer(userModule, queue)
     userModule = loadfile(userModule)()
+    local newFlowPipe = self.pipes[#self.pipes]
+    print("#pipes", #self.pipes, newFlowPipe)
     -- Cast back to correct type
     local stateType = ffi.typeof(userModule.stateType .. "*")
     self.defaultState = ffi.cast(stateType, self.defaultState)
@@ -95,12 +114,17 @@ function flowtracker:analyzer(userModule, queue)
             -- also handle IPv4/6/whatever
             local success = extractTuple(buf, tuple)
             if success then
-                -- copy-constructed
                 local isNew = self.table4:access(accessor, tuple)
                 local t = accessor:get()
                 local valuePtr = ffi.cast(stateType, t)
                 if isNew then
+                    -- copy-constructed
                     ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
+                    -- Alloc new tuple and copy flow into it
+                    local t = memory.alloc("struct ipv4_5tuple*", ffi.sizeof("struct ipv4_5tuple"))
+                    ffi.copy(t, tuple, ffi.sizeof("struct ipv4_5tuple"))
+                    --log:info("%s %s", tuple, t)
+                    newFlowPipe:trySend(t)
                     --log:info("New flow! %s", tuple)
                 end
                 handler4(tuple, valuePtr, buf, isNew)
@@ -115,6 +139,52 @@ function flowtracker:analyzer(userModule, queue)
     rxCtr:finalize()
 end
 
+function flowtracker:checker(userModule)
+    userModule = loadfile(userModule)()
+    local stateType = ffi.typeof(userModule.stateType .. "*")
+    local checkTimer = timer:new(self.checkInterval)
+    local flows = {}
+    local addToList = function(flow)
+        flows[flow] = true
+    end
+    local removeFromList = function(flow)
+        flows[flow] = nil
+        memory.free(flow)
+    end
+    local accessor4 = self.table4.newAccessor()
+    while lm.running() do
+        for _, pipe in ipairs(self.pipes) do
+            local newFlow = pipe:tryRecv(10)
+            if newFlow ~= nil then
+                newFlow = ffi.cast("struct ipv4_5tuple*", newFlow)
+                --print("checker", newFlow)
+                addToList(newFlow[0])
+            end
+            if checkTimer:expired() then
+                local t1 = time()
+                local purged, keep = 0, 0
+                for flow, _ in pairs(flows) do
+                    local isNew = self.table4:access(accessor4, flow)
+                    assert(isNew == false) -- Must hold or we have an error
+                    local valuePtr = ffi.cast(stateType, accessor4:get())
+                    if userModule.checkExpiry(flow, valuePtr) then
+                        purged = purged + 1
+                        removeFromList(flow)
+                        self.table4.erase(accessor4)
+                    else
+                        keep = keep + 1
+                    end
+                    accessor4:release()
+                end
+                local t2 = time()
+                log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
+                checkTimer:reset()
+            end
+        end
+    end
+    accessor4:free()
+end
+
 function flowtracker:delete()
     memory.free(self.defaultState)
     self.table4:delete()
@@ -124,9 +194,9 @@ end
 __FLOWTRACKER_ANALYZER = flowtracker.analyzer
 mod.analyzerTask = "__FLOWTRACKER_ANALYZER"
 
+__FLOWTRACKER_CHECKER = flowtracker.checker
+mod.checkerTask = "__FLOWTRACKER_CHECKER"
+
 -- don't forget the usual magic in __serialize for thread-stuff
-
-
--- swapper goes here
 
 return mod
