@@ -145,32 +145,33 @@ function flowtracker:checker(userModule)
     local checkTimer = timer:new(self.checkInterval)
     local flows = {}
     local addToList = function(flow)
-        flows[flow] = true
+        flows[#flows + 1] = flow
     end
-    local removeFromList = function(flow)
-        flows[flow] = nil
-        memory.free(flow)
+    local removeFromList = function(idx)
+        memory.free(flows[idx])
+        table.remove(flows, idx)
     end
     local accessor4 = self.table4.newAccessor()
     while lm.running() do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
             if newFlow ~= nil then
-                newFlow = ffi.cast("struct ipv4_5tuple*", newFlow)
+                newFlow = ffi.cast("struct ipv4_5tuple&", newFlow)
                 --print("checker", newFlow)
-                addToList(newFlow[0])
+                addToList(newFlow)
             end
             if checkTimer:expired() then
                 local t1 = time()
                 local purged, keep = 0, 0
-                for flow, _ in pairs(flows) do
+                for i = #flows, 1, -1 do
+                    local flow = flows[i]
                     local isNew = self.table4:access(accessor4, flow)
                     assert(isNew == false) -- Must hold or we have an error
                     local valuePtr = ffi.cast(stateType, accessor4:get())
                     if userModule.checkExpiry(flow, valuePtr) then
                         purged = purged + 1
-                        removeFromList(flow)
-                        self.table4.erase(accessor4)
+                        removeFromList(i)
+                        self.table4:erase(accessor4)
                     else
                         keep = keep + 1
                     end
