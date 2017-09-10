@@ -33,8 +33,14 @@ function module.handleIp4Packet(tuple, state, buf, isFirstPacket)
     -- can add custom "active timeout" (like ipfix) here
 end
 
-function module.handleIp4Timeout(tuple, state)
-    print("flow died, state was: %s", state) -- assume state has reasonable __tostring
+-- Function that gets called in regular intervals to decide if a flow is still active
+-- Returns true for flows that are expired, false for active flows
+function module.checkExpiry(tuple, state)
+    return false
 end
+
+-- Set the interval in which the check function should be called
+-- float in seconds
+module.checkInterval = 5
 
 return module
