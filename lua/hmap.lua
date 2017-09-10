@@ -58,6 +58,9 @@ function makeHashmapFor(size)
     function map.newAccessor()
         return flowtrackerlib["hmap" .. size .. "_new_accessor"]()
     end
+    function map:erase(a)
+        return flowtrackerlib["hmap" .. size .. "_erase"](self, a)
+    end
     local accessor = {}
     accessor.__index = accessor
     function accessor:get()
