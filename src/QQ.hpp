@@ -23,11 +23,11 @@
        do { perror(__FILE__ ":" PP_STR(__LINE__) ":\n\t" msg); exit(EXIT_FAILURE); } while (0)
 
 
-#if __GNUC__ < 5
+#if __GNUC__ < 5 && !defined(__clang__)
 /* Taken from LLVM libcxx - MIT Licence */
 namespace std {
 inline void*
-align(size_t alignment, size_t size, void*& ptr, size_t& space)
+align(size_t alignment, size_t size, void*& ptr, size_t& space) noexcept
 {
     void* r = nullptr;
     if (size <= space)
