@@ -82,11 +82,11 @@ namespace tbb_wrapper {
     struct tbb_tracker {
         tbb_tracker(std::size_t pre_alloc) {
             last_swap = std::chrono::steady_clock::now();
-            current4 = new tbb_map_v4(pre_alloc);
+            current4.store(new tbb_map_v4(pre_alloc));
             old4 = new tbb_map_v4(pre_alloc);
         }
         ~tbb_tracker() {
-            delete current4;
+            delete current4.load();
             delete old4;
         }
 
