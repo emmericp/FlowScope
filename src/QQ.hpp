@@ -395,8 +395,8 @@ namespace QQ {
             }
 
             std::cout << "Timeout test passed" << std::endl;
-            delete bytes;
-            delete packet_data;
+            delete[] bytes;
+            delete[] packet_data;
         }
 
     public:
