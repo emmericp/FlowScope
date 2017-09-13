@@ -29,11 +29,7 @@ end
 
 function master(args)
     local userModule = loadfile(args.module)()
-    local tracker = flowtracker.new {
-        stateType = userModule.stateType,
-        defaultState = userModule.defaultState or {},
-        checkInterval = userModule.checkInterval or 30
-    }
+    local tracker = flowtracker.new(userModule)
 
     -- this part should be wrapped by flowscope and exposed via CLI arguments
     for i, dev in ipairs(args.dev) do
