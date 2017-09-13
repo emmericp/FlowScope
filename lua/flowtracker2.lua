@@ -30,9 +30,22 @@ function mod.new(args)
         log:error("Module has no stateType")
         return nil
     end
+    if args.primaryFlowKey == nil then
+        log:error("Module has no primary flow key")
+        return nil
+    end
+    if args.defaultState == nil then
+        log:info("Module has no default flow state, using {}")
+        args.defaultState = {}
+    end
+    if args.extractFlowKey == nil then
+        log:error("Module has no extractFlowKey function")
+        return nil
+    end
 
     local obj = setmetatable(args, flowtracker)
-    obj.table4 = hmap.createTable(ffi.sizeof(obj.stateType))
+    obj.primaryTable = hmap.createTable(ffi.sizeof(obj.primaryFlowKey), ffi.sizeof(obj.stateType))
+    log:info("%s", obj.primaryTable)
     -- Create temporary object with zero bytes or user-defined initializers
     local tmp = ffi.new(obj.stateType, obj.defaultState)
     -- Allocate persistent (non-GC) memory
@@ -98,13 +111,15 @@ function flowtracker:analyzer(userModule, queue)
     -- Cast back to correct type
     local stateType = ffi.typeof(userModule.stateType .. "*")
     self.defaultState = ffi.cast(stateType, self.defaultState)
-    local handler4 = userModule.handleIp4Packet
-    assert(handler4)
-    local accessor = self.table4.newAccessor()
+    local handler = userModule.handlePacket
+    assert(handler)
+    local primaryAccessors = self.primaryTable.newAccessor()
     local bufs = memory.bufArray()
     local rxCtr = stats:newPktRxCounter("Analyzer")
-    -- FIXME: would be nice to make this customizable as well?
-    local tuple = ffi.new("struct ipv4_5tuple")
+    --local primaryFlowKey = ffi.new(userModule.primaryFlowKey)
+    local buf = ffi.new("uint8_t[64]", {})
+    local primaryFlowKey = ffi.cast(userModule.primaryFlowKey .. "*", buf)
+    print(buf, primaryFlowKey, self.primaryTable.keyBufSize())
     --require("jit.p").start("a")
     while lm.running() do
         local rx = queue:tryRecv(bufs)
@@ -112,30 +127,31 @@ function flowtracker:analyzer(userModule, queue)
             local buf = bufs[i]
             rxCtr:countPacket(buf)
             -- also handle IPv4/6/whatever
-            local success = extractTuple(buf, tuple)
+            local success = userModule.extractFlowKey(buf, primaryFlowKey)
             if success then
-                local isNew = self.table4:access(accessor, tuple)
-                local t = accessor:get()
+                local isNew = self.primaryTable:access(primaryAccessors, primaryFlowKey)
+                local t = primaryAccessors:get()
                 local valuePtr = ffi.cast(stateType, t)
                 if isNew then
                     -- copy-constructed
                     ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-                    -- Alloc new tuple and copy flow into it
-                    local t = memory.alloc("struct ipv4_5tuple*", ffi.sizeof("struct ipv4_5tuple"))
-                    ffi.copy(t, tuple, ffi.sizeof("struct ipv4_5tuple"))
-                    --log:info("%s %s", tuple, t)
+                    -- Alloc new primaryFlowKey and copy flow into it
+                    local t = memory.alloc(userModule.primaryFlowKey .. "*", self.primaryTable.keyBufSize())
+                    ffi.fill(t, self.primaryTable.keyBufSize())
+                    ffi.copy(t, primaryFlowKey, ffi.sizeof(userModule.primaryFlowKey))
+                    --log:info("%s %s", primaryFlowKey, t)
                     newFlowPipe:trySend(t)
-                    --log:info("New flow! %s", tuple)
+                    --log:info("New flow! %s", primaryFlowKey)
                 end
-                handler4(tuple, valuePtr, buf, isNew)
-                accessor:release()
+                handler(primaryFlowKey, valuePtr, buf, isNew)
+                primaryAccessors:release()
             end
         end
         bufs:free(rx)
         rxCtr:update()
     end
     --require("jit.p").stop()
-    accessor:free()
+    primaryAccessors:free()
     rxCtr:finalize()
 end
 
@@ -151,12 +167,12 @@ function flowtracker:checker(userModule)
         memory.free(flows[idx])
         table.remove(flows, idx)
     end
-    local accessor4 = self.table4.newAccessor()
+    local primaryAccessors = self.primaryTable.newAccessor()
     while lm.running() do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
             if newFlow ~= nil then
-                newFlow = ffi.cast("struct ipv4_5tuple&", newFlow)
+                newFlow = ffi.cast(userModule.primaryFlowKey .. "&", newFlow)
                 --print("checker", newFlow)
                 addToList(newFlow)
             end
@@ -166,29 +182,29 @@ function flowtracker:checker(userModule)
             local purged, keep = 0, 0
             for i = #flows, 1, -1 do
                 local flow = flows[i]
-                local isNew = self.table4:access(accessor4, flow)
+                local isNew = self.primaryTable:access(primaryAccessors, flow)
                 assert(isNew == false) -- Must hold or we have an error
-                local valuePtr = ffi.cast(stateType, accessor4:get())
+                local valuePtr = ffi.cast(stateType, primaryAccessors:get())
                 if userModule.checkExpiry(flow, valuePtr) then
                     purged = purged + 1
                     removeFromList(i)
-                    self.table4:erase(accessor4)
+                    self.primaryTable:erase(primaryAccessors)
                 else
                     keep = keep + 1
                 end
-                accessor4:release()
+                primaryAccessors:release()
             end
             local t2 = time()
             log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
             checkTimer:reset()
         end
     end
-    accessor4:free()
+    primaryAccessors:free()
 end
 
 function flowtracker:delete()
     memory.free(self.defaultState)
-    self.table4:delete()
+    self.primaryTable:delete()
 end
 
 -- usual libmoon threading magic
