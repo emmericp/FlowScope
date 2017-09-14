@@ -19,41 +19,42 @@ namespace var_hash_map {
         /* Specialized hash functions for known key_buf sizes */
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 8>::type* = 0) const noexcept {
-            return _mm_crc32_u64(0, k.data[0]);
+            return _mm_crc32_u64(0, *reinterpret_cast<const uint64_t*>(k.data + 0));
         }
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 16>::type* = 0) const noexcept {
-            uint64_t hash = 0;
-            hash = _mm_crc32_u64(hash, k.data[0]);
-            return _mm_crc32_u64(hash, k.data[8]);
+            uint32_t hash = 0;
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
+            return _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
         }
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 32>::type* = 0) const noexcept {
             uint64_t hash = 0;
-            hash = _mm_crc32_u64(hash, k.data[0]);
-            hash = _mm_crc32_u64(hash, k.data[8]);
-            hash = _mm_crc32_u64(hash, k.data[16]);
-            return _mm_crc32_u64(hash, k.data[24]);
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 16));
+            return _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 24));;
         }
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 64>::type* = 0) const noexcept {
             uint64_t hash = 0;
-            hash = _mm_crc32_u64(hash, k.data[0]);
-            hash = _mm_crc32_u64(hash, k.data[8]);
-            hash = _mm_crc32_u64(hash, k.data[16]);
-            hash = _mm_crc32_u64(hash, k.data[24]);
-            hash = _mm_crc32_u64(hash, k.data[32]);
-            hash = _mm_crc32_u64(hash, k.data[40]);
-            hash = _mm_crc32_u64(hash, k.data[48]);
-            return _mm_crc32_u64(hash, k.data[56]);
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 16));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 24));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 32));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 40));
+            hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 48));
+            return _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 56));;
         }
 
         /* Generic version for key_bufs of any length
          * TODO: Maybe do something fancy for size mod 4 = 0
          */
+        /*
         inline size_t hash(const K& k) const noexcept {
             uint64_t hash = 0;
             for (size_t i = 0; i < K::size; ++i) {
@@ -61,6 +62,7 @@ namespace var_hash_map {
             }
             return hash;
         }
+        */
     };
 
     template<size_t key_size>
