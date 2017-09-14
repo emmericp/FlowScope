@@ -42,7 +42,6 @@ function master(args)
         for threadId = 0, args.rxThreads - 1 do
             -- get from QQ or from a device queue
             tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
-            --lm.startTask(flowtracker.analyzerTask, tracker, args.module, args.dev[i]:getRxQueue(threadId))
         end
         -- Start checker, has to done after the analyzers/pipes are created
         tracker:startChecker(args.module)

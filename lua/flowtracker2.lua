@@ -113,24 +113,22 @@ function flowtracker:analyzer(userModule, queue)
     self.defaultState = ffi.cast(stateType, self.defaultState)
     local handler = userModule.handlePacket
     assert(handler)
-    local primaryAccessors = self.primaryTable.newAccessor()
+    local extractFlowKey = userModule.extractFlowKey
+    local primaryAccessor = self.primaryTable.newAccessor()
     local bufs = memory.bufArray()
     local rxCtr = stats:newPktRxCounter("Analyzer")
-    --local primaryFlowKey = ffi.new(userModule.primaryFlowKey)
-    local buf = ffi.new("uint8_t[64]", {})
+    local buf = ffi.new("uint8_t[?]", self.primaryTable.keyBufSize())
     local primaryFlowKey = ffi.cast(userModule.primaryFlowKey .. "*", buf)
-    print(buf, primaryFlowKey, self.primaryTable.keyBufSize())
-    --require("jit.p").start("a")
+    --require("jit.p").start("a2")
     while lm.running() do
         local rx = queue:tryRecv(bufs)
         for i = 1, rx do
             local buf = bufs[i]
             rxCtr:countPacket(buf)
-            -- also handle IPv4/6/whatever
-            local success = userModule.extractFlowKey(buf, primaryFlowKey)
+            local success = extractFlowKey(buf, primaryFlowKey)
             if success then
-                local isNew = self.primaryTable:access(primaryAccessors, primaryFlowKey)
-                local t = primaryAccessors:get()
+                local isNew = self.primaryTable:access(primaryAccessor, primaryFlowKey)
+                local t = primaryAccessor:get()
                 local valuePtr = ffi.cast(stateType, t)
                 if isNew then
                     -- copy-constructed
@@ -138,20 +136,20 @@ function flowtracker:analyzer(userModule, queue)
                     -- Alloc new primaryFlowKey and copy flow into it
                     local t = memory.alloc(userModule.primaryFlowKey .. "*", self.primaryTable.keyBufSize())
                     ffi.fill(t, self.primaryTable.keyBufSize())
-                    ffi.copy(t, primaryFlowKey, ffi.sizeof(userModule.primaryFlowKey))
+                    ffi.copy(t, primaryFlowKey, self.primaryTable.keyBufSize())
                     --log:info("%s %s", primaryFlowKey, t)
                     newFlowPipe:trySend(t)
                     --log:info("New flow! %s", primaryFlowKey)
                 end
                 handler(primaryFlowKey, valuePtr, buf, isNew)
-                primaryAccessors:release()
+                primaryAccessor:release()
             end
         end
         bufs:free(rx)
         rxCtr:update()
     end
     --require("jit.p").stop()
-    primaryAccessors:free()
+    primaryAccessor:free()
     rxCtr:finalize()
 end
 
@@ -167,7 +165,7 @@ function flowtracker:checker(userModule)
         memory.free(flows[idx])
         table.remove(flows, idx)
     end
-    local primaryAccessors = self.primaryTable.newAccessor()
+    local primaryAccessor = self.primaryTable.newAccessor()
     while lm.running() do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
@@ -182,24 +180,24 @@ function flowtracker:checker(userModule)
             local purged, keep = 0, 0
             for i = #flows, 1, -1 do
                 local flow = flows[i]
-                local isNew = self.primaryTable:access(primaryAccessors, flow)
+                local isNew = self.primaryTable:access(primaryAccessor, flow)
                 assert(isNew == false) -- Must hold or we have an error
-                local valuePtr = ffi.cast(stateType, primaryAccessors:get())
+                local valuePtr = ffi.cast(stateType, primaryAccessor:get())
                 if userModule.checkExpiry(flow, valuePtr) then
                     purged = purged + 1
                     removeFromList(i)
-                    self.primaryTable:erase(primaryAccessors)
+                    self.primaryTable:erase(primaryAccessor)
                 else
                     keep = keep + 1
                 end
-                primaryAccessors:release()
+                primaryAccessor:release()
             end
             local t2 = time()
             log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
             checkTimer:reset()
         end
     end
-    primaryAccessors:free()
+    primaryAccessor:free()
 end
 
 function flowtracker:delete()
