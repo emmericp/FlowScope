@@ -4,7 +4,10 @@
 #include <nmmintrin.h>
 
 namespace var_hash_map {
-    template<typename K>
+    /* Secret hash cookie */
+    constexpr uint32_t secret = 0xF00BA;
+
+    template<typename K, typename std::enable_if<std::is_pod<K>::value>::type* = nullptr>
     struct var_crc_hash {
         var_crc_hash() = default;
         var_crc_hash(const var_crc_hash& h) = default;
@@ -19,19 +22,20 @@ namespace var_hash_map {
         /* Specialized hash functions for known key_buf sizes */
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 8>::type* = 0) const noexcept {
-            return _mm_crc32_u64(0, *reinterpret_cast<const uint64_t*>(k.data + 0));
+            size_t hash = secret;
+            return _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
         }
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 16>::type* = 0) const noexcept {
-            uint32_t hash = 0;
+            size_t hash = secret;
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
             return _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
         }
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 32>::type* = 0) const noexcept {
-            uint64_t hash = 0;
+            size_t hash = secret;
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 16));
@@ -40,7 +44,7 @@ namespace var_hash_map {
 
         template<typename U = K>
         inline size_t hash(const U& k, typename std::enable_if<U::size == 64>::type* = 0) const noexcept {
-            uint64_t hash = 0;
+            size_t hash = secret;
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 0));
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 8));
             hash = _mm_crc32_u64(hash, *reinterpret_cast<const uint64_t*>(k.data + 16));
