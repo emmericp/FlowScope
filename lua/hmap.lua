@@ -24,8 +24,8 @@ local keySizes = { 8, 16, 32, 64 }
 local valueSizes = { 8, 16, 32, 64, 128 }
 
 -- Get tbb hash map with fitting key and value size
-function module.createTable(keySize, valueSize)
-    local realKeySize, realKeySize = 0, 0
+function module.createHashmap(keySize, valueSize)
+    local realKeySize, realValueSize = 0, 0
     if keySize <= 8 then
         realKeySize = 8
     elseif keySize <= 16 then
@@ -90,7 +90,6 @@ function makeHashmapFor(keySize, valueSize)
     accessor.__index = accessor
     ffi.metatype("hmapk" .. keySize .. "v" .. valueSize, map)
     ffi.metatype("hmapk" .. keySize .. "v" .. valueSize .. "_accessor", accessor)
-    return map
 end
 
 for _, k in pairs(keySizes) do
@@ -101,12 +100,5 @@ for _, k in pairs(keySizes) do
         makeHashmapFor(k, v)
     end
 end
-
--- FIXME: Are these really needed?
--- local hmap8 = makeHashmapFor(8)
--- local hmap16 = makeHashmapFor(16)
--- local hmap32 = makeHashmapFor(32)
--- local hmap64 = makeHashmapFor(64)
--- local hmap128 = makeHashmapFor(128)
 
 return module
