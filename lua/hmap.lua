@@ -101,4 +101,15 @@ for _, k in pairs(keySizes) do
     end
 end
 
+-- Helper function to get the size of the largest flow key
+-- args is a table hash maps
+function module.getLargestKeyBufSize(args)
+    local sz = {}
+    for _, v in ipairs(args) do
+        table.insert(sz, v.keyBufSize())
+    end
+    table.sort(sz)
+    return sz[#sz]
+end
+
 return module
