@@ -28,7 +28,11 @@ end
 
 
 function master(args)
-    local userModule = loadfile(args.module)()
+    local f, err = loadfile(args.module)
+    if f == nil then
+        log:error(err)
+    end
+    local userModule = f()
     local tracker = flowtracker.new(userModule)
 
     -- this part should be wrapped by flowscope and exposed via CLI arguments
@@ -44,7 +48,7 @@ function master(args)
             tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
         end
         -- Start checker, has to done after the analyzers/pipes are created
-        tracker:startChecker(args.module)
+        --tracker:startChecker(args.module)
     end
     device.waitForLinks()
     -- end wrapped part
