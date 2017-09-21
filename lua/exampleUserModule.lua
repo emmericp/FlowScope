@@ -34,44 +34,39 @@ ffi.cdef [[
     } __attribute__((__packed__));
 ]]
 
--- Export names of structs
--- secondaryFlowKey is optional
+-- Export flow keys
+-- Position in the array coreseponds to the index returned by extractFlowKey()
+module.flowKeys = {
+    "struct my_primary_flow_key",
+    "struct my_secondary_flow_key",
+}
+
+-- Export flow state type
 module.stateType = "struct my_flow_state"
-module.primaryFlowKey = "struct my_primary_flow_key"
-module.secondaryFlowKey = "struct my_secondary_flow_key"
 
 -- Custom default state for new flows
 -- See ffi.new() for table initializer rules
 module.defaultState = {packet_counter = 123, some_flags = 0xab}
 
 -- Function that builds the appropiate flow key for the packet given in buf
--- return true for successful extraction, false if a packet should be ignored
+-- return true and the hash map index for successful extraction, false if a packet should be ignored
 -- Use libmoons packet library to access common protocol fields
-function module.extractFlowKey(buf, primaryFlowKey, secondaryFlowKey)
+function module.extractFlowKey(buf, keyBuf)
     local ethPkt = pktLib.getEthernetPacket(buf)
     if ethPkt.eth:getType() == eth.TYPE_IP then
         -- actual L4 type doesn't matter
+        keyBuf = ffi.cast("struct my_primary_flow_key&", keyBuf)
         local parsedPkt = pktLib.getUdp4Packet(buf)
-        primaryFlowKey.ip_dst = parsedPkt.ip4:getDst()
-        primaryFlowKey.ip_src = parsedPkt.ip4:getSrc()
+        keyBuf.ip_dst = parsedPkt.ip4:getDst()
+        keyBuf.ip_src = parsedPkt.ip4:getSrc()
         local TTL = parsedPkt.ip4:getTTL()
-        if parsedPkt.ip4:getProtocol() == ip.PROTO_UDP then
-            primaryFlowKey.port_dst = parsedPkt.udp:getDstPort()
-            primaryFlowKey.port_src = parsedPkt.udp:getSrcPort()
-            primaryFlowKey.proto = parsedPkt.ip4:getProtocol()
-            return true
-        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
-            -- port at the same position as UDP
-            primaryFlowKey.port_dst = parsedPkt.udp:getDstPort()
-            primaryFlowKey.port_src = parsedPkt.udp:getSrcPort()
-            primaryFlowKey.proto = parsedPkt.ip4:getProtocol()
-            return true
-        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
-            -- port at the same position as UDP
-            primaryFlowKey.port_dst = parsedPkt.udp:getDstPort()
-            primaryFlowKey.port_src = parsedPkt.udp:getSrcPort()
-            primaryFlowKey.proto = parsedPkt.ip4:getProtocol()
-            return true
+        -- port is always at the same position as UDP
+        keyBuf.port_dst = parsedPkt.udp:getDstPort()
+        keyBuf.port_src = parsedPkt.udp:getSrcPort()
+        local proto = parsedPkt.ip4:getProtocol()
+        if proto == ip.PROTO_UDP or proto == ip.PROTO_TCP or proto == ip.PROTO_SCTP then
+            keyBuf.proto = parsedPkt.ip4:getProtocol()
+            return true, 1
         end
     else
         log:info("Packet not IP")

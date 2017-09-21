@@ -30,22 +30,30 @@ function mod.new(args)
         log:error("Module has no stateType")
         return nil
     end
-    if args.primaryFlowKey == nil then
-        log:error("Module has no primary flow key")
+    if type(args.flowKeys) ~= "table" then
+        log:error("Module has flow keys table")
+        return nil
+    end
+    if #args.flowKeys < 1 then
+        log:error("Flow key array must contain at least one entry")
         return nil
     end
     if args.defaultState == nil then
         log:info("Module has no default flow state, using {}")
         args.defaultState = {}
     end
-    if args.extractFlowKey == nil then
+    if type(args.extractFlowKey) ~= "function" then
         log:error("Module has no extractFlowKey function")
         return nil
     end
 
     local obj = setmetatable(args, flowtracker)
-    obj.primaryTable = hmap.createTable(ffi.sizeof(obj.primaryFlowKey), ffi.sizeof(obj.stateType))
-    log:info("%s", obj.primaryTable)
+    obj.maps = {}
+    for _, v in ipairs(args.flowKeys) do
+        local m = hmap.createHashmap(ffi.sizeof(v), ffi.sizeof(obj.stateType))
+        log:info("{%s -> %s}: %s", v, obj.stateType, m)
+        table.insert(obj.maps, m)
+    end
     -- Create temporary object with zero bytes or user-defined initializers
     local tmp = ffi.new(obj.stateType, obj.defaultState)
     -- Allocate persistent (non-GC) memory
@@ -62,8 +70,9 @@ end
 
 -- Starts a new analyzer
 function flowtracker:startNewAnalyzer(userModule, queue)
-    self.pipes[#self.pipes + 1] = pipe.newFastPipe()
-    lm.startTask("__FLOWTRACKER_ANALYZER", self, userModule, queue)
+    local p = pipe.newFastPipe()
+    self.pipes[#self.pipes + 1] = p -- Store pipes so the checker can access them
+    lm.startTask("__FLOWTRACKER_ANALYZER", self, userModule, queue, p)
 end
 
 -- Starts the flow expiry checker
@@ -72,84 +81,64 @@ function flowtracker:startChecker(userModule)
     lm.startTask("__FLOWTRACKER_CHECKER", self, userModule)
 end
 
-local function extractTuple(buf, tuple)
-    local ethPkt = pktLib.getEthernetPacket(buf)
-    if ethPkt.eth:getType() == eth.TYPE_IP then
-        -- actual L4 type doesn't matter
-        local parsedPkt = pktLib.getUdp4Packet(buf)
-        tuple.ip_dst = parsedPkt.ip4:getDst()
-        tuple.ip_src = parsedPkt.ip4:getSrc()
-        local TTL = parsedPkt.ip4:getTTL()
-        if parsedPkt.ip4:getProtocol() == ip.PROTO_UDP then
-            tuple.port_dst = parsedPkt.udp:getDstPort()
-            tuple.port_src = parsedPkt.udp:getSrcPort()
-            tuple.proto = parsedPkt.ip4:getProtocol()
-            return true
-        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_TCP then
-            -- port at the same position as UDP
-            tuple.port_dst = parsedPkt.udp:getDstPort()
-            tuple.port_src = parsedPkt.udp:getSrcPort()
-            tuple.proto = parsedPkt.ip4:getProtocol()
-            return true
-        elseif parsedPkt.ip4:getProtocol() == ip.PROTO_SCTP then
-            -- port at the same position as UDP
-            tuple.port_dst = parsedPkt.udp:getDstPort()
-            tuple.port_src = parsedPkt.udp:getSrcPort()
-            tuple.proto = parsedPkt.ip4:getProtocol()
-            return true
-        end
-    else
-        log:info("Packet not IP")
-    end
-    return false
-end
-
-function flowtracker:analyzer(userModule, queue)
+function flowtracker:analyzer(userModule, queue, flowPipe)
     userModule = loadfile(userModule)()
-    local newFlowPipe = self.pipes[#self.pipes]
-    print("#pipes", #self.pipes, newFlowPipe)
-    -- Cast back to correct type
+
+    -- Cast flow state + default back to correct type
     local stateType = ffi.typeof(userModule.stateType .. "*")
     self.defaultState = ffi.cast(stateType, self.defaultState)
+
+    -- Cache functions
     local handler = userModule.handlePacket
-    assert(handler)
     local extractFlowKey = userModule.extractFlowKey
-    local primaryAccessor = self.primaryTable.newAccessor()
+
+    -- Allocate hash map accessors
+    local accs = {}
+    for _, v in ipairs(self.maps) do
+        table.insert(accs, v.newAccessor())
+    end
+
+    -- Allocate flow key buffer
+    local sz = hmap.getLargestKeyBufSize(self.maps)
+    local keyBuf = ffi.new("uint8_t[?]", sz)
+    log:info("Key buffer size: %i", sz)
+
     local bufs = memory.bufArray()
     local rxCtr = stats:newPktRxCounter("Analyzer")
-    local buf = ffi.new("uint8_t[?]", self.primaryTable.keyBufSize())
-    local primaryFlowKey = ffi.cast(userModule.primaryFlowKey .. "*", buf)
+
     --require("jit.p").start("a2")
     while lm.running() do
-        local rx = queue:tryRecv(bufs)
+        local rx = queue:tryRecv(bufs, 10)
         for i = 1, rx do
             local buf = bufs[i]
             rxCtr:countPacket(buf)
-            local success = extractFlowKey(buf, primaryFlowKey)
+            local success, index = extractFlowKey(buf, keyBuf)
             if success then
-                local isNew = self.primaryTable:access(primaryAccessor, primaryFlowKey)
-                local t = primaryAccessor:get()
+                local isNew = self.maps[index]:access(accs[index], keyBuf)
+                local t = accs[index]:get()
                 local valuePtr = ffi.cast(stateType, t)
                 if isNew then
                     -- copy-constructed
                     ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-                    -- Alloc new primaryFlowKey and copy flow into it
-                    local t = memory.alloc(userModule.primaryFlowKey .. "*", self.primaryTable.keyBufSize())
-                    ffi.fill(t, self.primaryTable.keyBufSize())
-                    ffi.copy(t, primaryFlowKey, self.primaryTable.keyBufSize())
-                    --log:info("%s %s", primaryFlowKey, t)
-                    newFlowPipe:trySend(t)
-                    --log:info("New flow! %s", primaryFlowKey)
+                    -- Alloc new keyBuf and copy flow into it
+                    local t = memory.alloc("void*", sz)
+                    ffi.fill(t, sz)
+                    ffi.copy(t, keyBuf, sz)
+                    --log:info("%s %s", keyBuf, t)
+                    flowPipe:trySend(t)
+                    --log:info("New flow! %s", keyBuf)
                 end
-                handler(primaryFlowKey, valuePtr, buf, isNew)
-                primaryAccessor:release()
+                handler(keyBuf, valuePtr, buf, isNew)
+                accs[index]:release()
             end
         end
         bufs:free(rx)
         rxCtr:update()
     end
     --require("jit.p").stop()
-    primaryAccessor:free()
+    for _, v in ipairs(accs) do
+        v:free()
+    end
     rxCtr:finalize()
 end
 
@@ -165,7 +154,14 @@ function flowtracker:checker(userModule)
         memory.free(flows[idx])
         table.remove(flows, idx)
     end
-    local primaryAccessor = self.primaryTable.newAccessor()
+
+    -- Allocate hash map accessors
+    local accs = {}
+    for _, v in ipairs(self.maps) do
+        table.insert(accs, v.newAccessor())
+    end
+
+    -- FIXME: We don't know with which table a flow buffer is associated
     while lm.running() do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
@@ -176,6 +172,7 @@ function flowtracker:checker(userModule)
             end
         end
         if checkTimer:expired() then
+            log:info("[Checker]: Started")
             local t1 = time()
             local purged, keep = 0, 0
             for i = #flows, 1, -1 do
@@ -193,16 +190,19 @@ function flowtracker:checker(userModule)
                 primaryAccessor:release()
             end
             local t2 = time()
-            log:info("[Checker]: Timer expired, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
+            log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
             checkTimer:reset()
         end
     end
     primaryAccessor:free()
+    log:info("[Checker]: Shutdown")
 end
 
 function flowtracker:delete()
     memory.free(self.defaultState)
-    self.primaryTable:delete()
+    for _, v in ipairs(self.maps) do
+        v:delete()
+    end
 end
 
 -- usual libmoon threading magic
