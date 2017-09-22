@@ -31,15 +31,38 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
     state.last_seen = t
 end
 
-function module.checkExpiry(flowKey, state)
+
+module.checkInterval = 5
+
+ffi.cdef [[
+    struct check_state {
+        uint64_t start_time;
+        uint64_t active_flows;
+        uint64_t cumulative_packets;
+        uint64_t cumulative_bytes;
+    };
+]]
+module.checkState = "struct check_state"
+
+function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
-    if state.last_seen + 30 * 10^6 < t then
+    if flowState.last_seen + 30 * 10^6 < t then
         return true
     else
+        checkState.active_flows = checkState.active_flows + 1
+        checkState.cumulative_packets = checkState.cumulative_packets + flowState.packet_counter
+        checkState.cumulative_bytes = checkState.cumulative_bytes + flowState.byte_counter
         return false
     end
 end
 
-module.checkInterval = 5
+function module.checkInitializer(checkState)
+    checkState.start_time = lm.getTime() * 10^6
+end
+
+function module.checkFinalizer(checkState)
+    local t = lm.getTime() * 10^6
+    print(string.format("Active flows %i, cumulative packets %i, cumulative bytes %i, took %fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_bytes), (t - tonumber(checkState.start_time)) / 10^6))
+end
 
 return module

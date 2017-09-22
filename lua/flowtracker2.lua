@@ -149,6 +149,11 @@ function flowtracker:checker(userModule)
     userModule = loadfile(userModule)()
     local stateType = ffi.typeof(userModule.stateType .. "*")
     local checkTimer = timer:new(self.checkInterval)
+    local initializer = userModule.checkInitializer or function() end
+    local finalizer = userModule.checkFinalizer or function() end
+    local checkState = userModule.checkState or "void*"
+
+    -- Flow list
     local flows = {}
     local addToList = function(l, flow)
         l[#l + 1] = flow
@@ -179,12 +184,14 @@ function flowtracker:checker(userModule)
             local t1 = time()
             local purged, keep = 0, 0
             local keepList = {}
+            local cs = ffi.new(checkState)
+            initializer(cs)
             for i = #flows, 1, -1 do
                 local index, flowKey = flows[i].index, flows[i].flow_key
                 local isNew = self.maps[index]:access(accs[index], flowKey)
                 assert(isNew == false) -- Must hold or we have an error
                 local valuePtr = ffi.cast(stateType, accs[index]:get())
-                if userModule.checkExpiry(flowKey, valuePtr) then
+                if userModule.checkExpiry(flowKey, valuePtr, cs) then
                     deleteFlow(flows[i])
                     self.maps[index]:erase(accs[index])
                     purged = purged + 1
@@ -195,6 +202,7 @@ function flowtracker:checker(userModule)
                 accs[index]:release()
             end
             flows = keepList
+            finalizer(cs, keep, purged)
             local t2 = time()
             log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
             checkTimer:reset()

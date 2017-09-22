@@ -1,7 +1,9 @@
 local ffi = require "ffi"
+local lm = require "libmoon"
 local pktLib = require "packet"
 local eth = require "proto.ethernet"
 local ip = require "proto.ip4"
+local log = require "log"
 
 local module = {}
 
@@ -87,9 +89,24 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
     -- can add custom "active timeout" (like ipfix) here
 end
 
+
+-- #### Checker configuration ####
+
+-- Set the interval in which the checkExpiry function should be called
+-- float in seconds
+module.checkInterval = 5
+
+-- Per check run persistent state, e.g., to track overall flow changes
+ffi.cdef [[
+    struct check_state {
+        uint64_t start_time;
+    };
+]]
+module.checkState = "struct check_state"
+
 -- Function that gets called in regular intervals to decide if a flow is still active
 -- Returns true for flows that are expired, false for active flows
-function module.checkExpiry(flowKey, state)
+function module.checkExpiry(flowKey, state, checkState)
     if math.random(0, 200) == 0 then
         return true
     else
@@ -97,8 +114,15 @@ function module.checkExpiry(flowKey, state)
     end
 end
 
--- Set the interval in which the check function should be called
--- float in seconds
-module.checkInterval = 5
+-- Function that gets called once per checker run at very beginning, before any flow is touched
+function module.checkInitializer(checkState)
+    checkState.start_time = lm.getTime() * 10^6
+end
+
+-- Function that gets called once per checker run at very end, after all flows have been processed
+function module.checkFinalizer(checkState, keptFlows, purgedFlows)
+    local t = lm.getTime() * 10^6
+    log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", (t - tonumber(checkState.start_time)) / 10^6, purgedFlows, keptFlows, purgedFlows+keptFlows)
+end
 
 return module
