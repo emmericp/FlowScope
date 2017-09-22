@@ -48,7 +48,7 @@ function master(args)
             tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
         end
         -- Start checker, has to done after the analyzers/pipes are created
-        --tracker:startChecker(args.module)
+        tracker:startChecker(args.module)
     end
     device.waitForLinks()
     -- end wrapped part

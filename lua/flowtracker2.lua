@@ -14,14 +14,16 @@ local timer = require "timer"
 
 local mod = {}
 
+ffi.cdef[[
+    struct new_flow_info {
+        uint8_t index;
+        void* flow_key;
+    };
+]]
+
 local flowtracker = {}
-flowtracker.__index = flowtracker
 
 function mod.new(args)
-    -- get size of stateType and round up to something
-    -- in C++: force template instantiation of several hashtable types (4,8,16,32,64,....?) bytes value?
-    -- get appropriate hashtables
-
     -- Check parameters
     for k, v in pairs(args) do
         log:info("%s: %s", k, v)
@@ -31,7 +33,7 @@ function mod.new(args)
         return nil
     end
     if type(args.flowKeys) ~= "table" then
-        log:error("Module has flow keys table")
+        log:error("Module has no flow keys table")
         return nil
     end
     if #args.flowKeys < 1 then
@@ -64,7 +66,6 @@ function mod.new(args)
     -- Setup expiry checker pipes
     obj.pipes = {}
 
-    --lm.startTask("__FLOWTRACKER_CHECKER", obj)
     return obj
 end
 
@@ -112,6 +113,7 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
         for i = 1, rx do
             local buf = bufs[i]
             rxCtr:countPacket(buf)
+            ffi.fill(keyBuf, sz) -- Clear shared key buffer
             local success, index = extractFlowKey(buf, keyBuf)
             if success then
                 local isNew = self.maps[index]:access(accs[index], keyBuf)
@@ -124,9 +126,10 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
                     local t = memory.alloc("void*", sz)
                     ffi.fill(t, sz)
                     ffi.copy(t, keyBuf, sz)
-                    --log:info("%s %s", keyBuf, t)
-                    flowPipe:trySend(t)
-                    --log:info("New flow! %s", keyBuf)
+                    local info = memory.alloc("struct new_flow_info*", ffi.sizeof("struct new_flow_info"))
+                    info.index = index
+                    info.flow_key = t
+                    flowPipe:trySend(info)
                 end
                 handler(keyBuf, valuePtr, buf, isNew)
                 accs[index]:release()
@@ -147,12 +150,12 @@ function flowtracker:checker(userModule)
     local stateType = ffi.typeof(userModule.stateType .. "*")
     local checkTimer = timer:new(self.checkInterval)
     local flows = {}
-    local addToList = function(flow)
-        flows[#flows + 1] = flow
+    local addToList = function(l, flow)
+        l[#l + 1] = flow
     end
-    local removeFromList = function(idx)
-        memory.free(flows[idx])
-        table.remove(flows, idx)
+    local deleteFlow = function(flow)
+        memory.free(flow.flow_key)
+        memory.free(flow)
     end
 
     -- Allocate hash map accessors
@@ -161,40 +164,46 @@ function flowtracker:checker(userModule)
         table.insert(accs, v.newAccessor())
     end
 
-    -- FIXME: We don't know with which table a flow buffer is associated
+    require("jit.p").start("a2")
     while lm.running() do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
             if newFlow ~= nil then
-                newFlow = ffi.cast(userModule.primaryFlowKey .. "&", newFlow)
+                newFlow = ffi.cast("struct new_flow_info&", newFlow)
                 --print("checker", newFlow)
-                addToList(newFlow)
+                addToList(flows, newFlow)
             end
         end
         if checkTimer:expired() then
             log:info("[Checker]: Started")
             local t1 = time()
             local purged, keep = 0, 0
+            local keepList = {}
             for i = #flows, 1, -1 do
-                local flow = flows[i]
-                local isNew = self.primaryTable:access(primaryAccessor, flow)
+                local index, flowKey = flows[i].index, flows[i].flow_key
+                local isNew = self.maps[index]:access(accs[index], flowKey)
                 assert(isNew == false) -- Must hold or we have an error
-                local valuePtr = ffi.cast(stateType, primaryAccessor:get())
-                if userModule.checkExpiry(flow, valuePtr) then
+                local valuePtr = ffi.cast(stateType, accs[index]:get())
+                if userModule.checkExpiry(flowKey, valuePtr) then
+                    deleteFlow(flows[i])
+                    self.maps[index]:erase(accs[index])
                     purged = purged + 1
-                    removeFromList(i)
-                    self.primaryTable:erase(primaryAccessor)
                 else
+                    addToList(keepList, flows[i])
                     keep = keep + 1
                 end
-                primaryAccessor:release()
+                accs[index]:release()
             end
+            flows = keepList
             local t2 = time()
             log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
             checkTimer:reset()
         end
     end
-    primaryAccessor:free()
+    require("jit.p").stop()
+    for _, v in ipairs(accs) do
+        v:free()
+    end
     log:info("[Checker]: Shutdown")
 end
 
@@ -203,7 +212,12 @@ function flowtracker:delete()
     for _, v in ipairs(self.maps) do
         v:delete()
     end
+    for _, v in ipairs(self.pipes) do
+        v:delete()
+    end
 end
+
+flowtracker.__index = flowtracker
 
 -- usual libmoon threading magic
 __FLOWTRACKER_ANALYZER = flowtracker.analyzer
