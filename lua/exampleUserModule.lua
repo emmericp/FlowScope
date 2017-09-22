@@ -65,7 +65,7 @@ function module.extractFlowKey(buf, keyBuf)
         keyBuf.port_src = parsedPkt.udp:getSrcPort()
         local proto = parsedPkt.ip4:getProtocol()
         if proto == ip.PROTO_UDP or proto == ip.PROTO_TCP or proto == ip.PROTO_SCTP then
-            keyBuf.proto = parsedPkt.ip4:getProtocol()
+            keyBuf.proto = proto
             return true, 1
         end
     else
