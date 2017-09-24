@@ -3,6 +3,7 @@ local device = require "device"
 local ffi = require "ffi"
 local log = require "log"
 local flowtracker = require "flowtracker2"
+local qq = require "qq"
 
 local jit = require "jit"
 jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
@@ -45,7 +46,15 @@ function master(args)
         -- Create analyzers
         for threadId = 0, args.rxThreads - 1 do
             -- get from QQ or from a device queue
-            tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
+            if userModule.mode == "qq" then
+                local q = qq.createQQ(args.size)
+                table.insert(tracker.qq, q)
+                tracker:startNewInserter(args.dev[i]:getRxQueue(threadId), q)
+                tracker:startNewDumper(args.path, q)
+                tracker:startNewAnalyzer(args.module, q)
+            else
+                tracker:startNewAnalyzer(args.module, args.dev[i]:getRxQueue(threadId))
+            end
         end
         -- Start checker, has to done after the analyzers/pipes are created
         tracker:startChecker(args.module)

@@ -36,8 +36,15 @@ ffi.cdef [[
     } __attribute__((__packed__));
 ]]
 
+-- Set buffer mode
+-- "direct" for direct access to the NIC without additional buffering
+-- "qq" for the QQ ringbuffer
+module.mode = "qq"
+
+module.maxDumperRules = 1000
+
 -- Export flow keys
--- Position in the array coreseponds to the index returned by extractFlowKey()
+-- Position in the array corresponds to the index returned by extractFlowKey()
 module.flowKeys = {
     "struct my_primary_flow_key",
     "struct my_secondary_flow_key",
@@ -50,7 +57,7 @@ module.stateType = "struct my_flow_state"
 -- See ffi.new() for table initializer rules
 module.defaultState = {packet_counter = 123, some_flags = 0xab}
 
--- Function that builds the appropiate flow key for the packet given in buf
+-- Function that builds the appropriate flow key for the packet given in buf
 -- return true and the hash map index for successful extraction, false if a packet should be ignored
 -- Use libmoons packet library to access common protocol fields
 function module.extractFlowKey(buf, keyBuf)

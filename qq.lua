@@ -7,7 +7,7 @@ local qqlib = ffi.load("build/qq")
 ffi.cdef [[
 	typedef struct packet_header {
 		uint64_t ts_vlan;
-		uint16_t len;
+		uint16_t pkt_len;
 		uint8_t data[];
 	} packet_header_t;
 
@@ -161,8 +161,8 @@ function packetHeader:getVlan()
 	return rshift(self.ts_vlan, 48)
 end
 
-function packetHeader:getLength()
-	return self.len
+function packetHeader:getSize()
+	return self.pkt_len
 end
 
 function packetHeader:getData()
@@ -174,10 +174,10 @@ function packetHeader:dump()
 end
 
 function packetHeader:clone()
-	local pkt = memory.alloc("packet_header_t*", ffi.sizeof("packet_header_t") + self.len)
+	local pkt = memory.alloc("packet_header_t*", ffi.sizeof("packet_header_t") + self.pkt_len)
 	pkt.ts_vlan = self.ts_vlan
-	pkt.len = self.len
-	ffi.copy(pkt.data, self.data, self.len)
+	pkt.pkt_len = self.pkt_len
+	ffi.copy(pkt.data, self.data, self.pkt_len)
 	return pkt
 end
 
