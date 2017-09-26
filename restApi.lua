@@ -161,7 +161,7 @@ function mod.start(turbo, args, pipes)
             end
 
             if #filter_not_found ~= 0 then
-                return error(turbo.web.HTTPError(400, { error = "Filter not found", not_found_ids = filter_not_found, removed_filter = removed_filter }))
+                return error(turbo.web.HTTPError(404, { error = "Filter not found", not_found_ids = filter_not_found, removed_filter = removed_filter }))
             end
 
             self:write(removed_filter)
