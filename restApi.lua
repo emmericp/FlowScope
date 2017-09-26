@@ -37,7 +37,11 @@ function mod.start(turbo, args, pipes)
     end
 
     function SpecificFilterWebHandler:put()
-        error(turbo.web.HTTPError(501, { error = "Update not implemented." }))
+        local function notImplemented()
+            error(turbo.web.HTTPError(501, { error = "Update not implemented." }))
+        end
+
+        apiUtils.ifAuthorized(self, args.apiToken, notImplemented)
     end
 
     function SpecificFilterWebHandler:delete()
@@ -74,8 +78,8 @@ function mod.start(turbo, args, pipes)
                 return error(turbo.web.HTTPError(400, { error = "Filter json malformed." }))
             end
 
-            local singleFilter = jsonBody['filter'] ~= nil and jsonBody['id'] ~= nil
-            print("Single filter: " .. tostring(singleFilter))
+            local singleFilter = jsonBody['filter'] ~= nil or jsonBody['id'] ~= nil
+
             if singleFilter then
                 if apiUtils.checkFilterAttributes(jsonBody) then
                     local filter = apiUtils.prepareFilter(jsonBody, ALLOWED_PIPES)
@@ -88,18 +92,27 @@ function mod.start(turbo, args, pipes)
                 end
             end
 
-            -- know we handle the pipelined filter application
+            -- now we handle the pipelined filter application
             local appliedFilter = {}
-            for i, jsonFilter in ipairs(jsonBody) do
+            local filter_error = {}
+            for _, jsonFilter in ipairs(jsonBody) do
                 if apiUtils.checkFilterAttributes(jsonFilter) then
                     local filter = apiUtils.prepareFilter(jsonFilter, ALLOWED_PIPES)
                     apiUtils.applyFilter(filter, filters, pipes)
                     appliedFilter[#appliedFilter + 1] = filter
                 else
-                    return error(turbo.web.HTTPError(400, { error = "Filter json malformed." }))
+                    filter_error[#filter_error + 1] = filter
                 end
             end
-            self:write(appliedFilter)
+            if #filter_error ~= 0 then
+                return error(turbo.web.HTTPError(400, {
+                    error = "Filter json malformed.",
+                    error_ids = filter_error,
+                    applied_filter = appliedFilter
+                }))
+            else
+                self:write(appliedFilter)
+            end
             self:finish()
         end
 
@@ -109,6 +122,49 @@ function mod.start(turbo, args, pipes)
     function FilterWebHandler:get()
         local function showFilters()
             self:write(filters)
+            self:finish()
+        end
+
+        apiUtils.ifAuthorized(self, args.apiToken, showFilters)
+    end
+
+    function FilterWebHandler:delete()
+        local function showFilters()
+            local arguments = self.request.arguments
+            local filter_ids = {}
+
+            if arguments['filter_id'] ~= nil then
+                if type(arguments['filter_id']) == 'table' then
+                    filter_ids = arguments['filter_id']
+                else
+                    filter_ids[#filter_ids + 1] = arguments['filter_id']
+                end
+            else
+                return error(turbo.web.HTTPError(400, { error = "URL parameter malformed." }))
+            end
+            -- arrays to keep track which filter_ids we have deleted and which we couldn't find
+            local removed_filter = {}
+            local filter_not_found = {}
+            for _, filterId in pairs(filter_ids) do
+                if filters[filterId] ~= nil then
+                    local filter = filters[filterId]
+                    filters[filterId] = nil
+                    filter.action = event.delete
+                    -- Remove filter from flowscope
+                    for i, _ in ipairs(filter.pipes) do
+                        pipes[i]:send(event.newEvent(filter.filter, event.delete, filter.id, filter.timestamp))
+                    end
+                    removed_filter[#removed_filter + 1] = filter
+                else
+                    filter_not_found[#filter_not_found + 1] = filterId
+                end
+            end
+
+            if #filter_not_found ~= 0 then
+                return error(turbo.web.HTTPError(400, { error = "Filter not found", not_found_ids = filter_not_found, removed_filter = removed_filter }))
+            end
+
+            self:write(removed_filter)
             self:finish()
         end
 
