@@ -229,7 +229,7 @@ function TBBTrackerAnalyzer(args, qq, id, hashmap, pipes)
 		end
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
-			rxCtr:updateWithSize(1, pkt.len)
+			rxCtr:updateWithSize(1, pkt.pkt_len)
 			local TTL
 			local lookup = false
 			-- Parsing begins
@@ -316,7 +316,7 @@ function dummyAnalyzer(args, qq, id)
 		local storage = qq:peek()
 		for i = 0, storage:size() - 1 do
 			local pkt = storage:getPacket(i)
-			rxCtr:updateWithSize(1, pkt.len)
+			rxCtr:updateWithSize(1, pkt.pkt_len)
 		end
 		storage:release()
 	end
@@ -382,7 +382,7 @@ function continuousDumper(args, qq, id, path, filterPipe)
 			local pkt = storage:getPacket(i)
 			local timestamp = pkt:getTimestamp()
 			local data = pkt.data
-			local len = pkt.len
+			local len = pkt.pkt_len
 			lastTS = tonumber(pkt.ts_vlan)
 			-- Do not use ipairs() here
 			for j = 1, #ruleList do
