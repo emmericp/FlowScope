@@ -44,6 +44,14 @@ namespace QQ {
 				rte_pktmbuf_free(bufs[i]);
 			}
 		}
+		enq_ptr.release();
+		// Attempt to make stray packets eligible for dequeuing after shutdown
+		// FIXME: Loop counter should depend on actual number of buckets blocked
+		for (int i = 0; i < 30; ++i) {
+			auto t = qq->enqueue();
+			t.release();
+			rte_delay_ms(10);
+		}
 	}
 }
 
