@@ -169,6 +169,10 @@ function packetHeader:getData()
 	return ffi.cast("void*", self.data)
 end
 
+function packetHeader:getBytes()
+    return self.data
+end
+
 function packetHeader:dump()
 	return packetLib.getEthernetPacket(self):resolveLastHeader():dump()
 end
