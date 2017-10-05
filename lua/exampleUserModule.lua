@@ -37,11 +37,9 @@ ffi.cdef [[
 ]]
 
 -- Set buffer mode
--- "direct" for direct access to the NIC without additional buffering
+-- "direct" for direct access to the NIC without additional buffering or dumping
 -- "qq" for the QQ ringbuffer
 module.mode = "qq"
-
-module.maxDumperRules = 1000
 
 -- Export flow keys
 -- Position in the array corresponds to the index returned by extractFlowKey()
@@ -55,11 +53,12 @@ module.stateType = "struct my_flow_state"
 
 -- Custom default state for new flows
 -- See ffi.new() for table initializer rules
-module.defaultState = {packet_counter = 123, some_flags = 0xab}
+module.defaultState = {packet_counter = 0, some_flags = 0xab}
 
 -- Function that builds the appropriate flow key for the packet given in buf
 -- return true and the hash map index for successful extraction, false if a packet should be ignored
 -- Use libmoons packet library to access common protocol fields
+-- See tuple.lua for classic IPv4/v6 5-tuple keys
 function module.extractFlowKey(buf, keyBuf)
     local ethPkt = pktLib.getEthernetPacket(buf)
     if ethPkt.eth:getType() == eth.TYPE_IP then
@@ -86,24 +85,27 @@ end
 -- state starts out empty if it doesn't exist yet; buf is whatever the device queue or QQ gives us
 -- flowKey will be a ctype of one of the above defined flow keys
 function module.handlePacket(flowKey, state, buf, isFirstPacket)
-    -- implicit lock by TBB
+    -- qq bufs (mode == "qq") always hold their timestamp of arival at the NIC in seconds
+    -- lm.getTime() is sourced from the same clock (TSC) and can be directly compared to these
+    local ts = buf:getTimestamp() * 10^6 -- Shift float to get more digits to store in a uint
     state.packet_counter = state.packet_counter + 1
     state.byte_counter = state.byte_counter + buf:getSize()
     if isFirstPacket then
-        state.first_seen = time()
+        state.first_seen = ts
     end
-    state.last_seen = time()
-    -- can add custom "active timeout" (like ipfix) here
+    state.last_seen = ts
+    return false
 end
 
 
 -- #### Checker configuration ####
 
--- Set the interval in which the checkExpiry function should be called
+-- Set the interval in which the checkExpiry function should be called.
+-- Don't define it or set it do nil to disable the checker task
 -- float in seconds
 module.checkInterval = 5
 
--- Per check run persistent state, e.g., to track overall flow changes
+-- Per checker run persistent state, e.g., to track overall flow changes
 ffi.cdef [[
     struct check_state {
         uint64_t start_time;
@@ -111,11 +113,12 @@ ffi.cdef [[
 ]]
 module.checkState = "struct check_state"
 
--- Function that gets called in regular intervals to decide if a flow is still active
--- Returns true for flows that are expired, false for active flows
+-- Function that gets called in regular intervals to decide if a flow is still active.
+-- Returns false for active flows.
+-- Returns true and a timestamp in seconds for flows that are expired.
 function module.checkExpiry(flowKey, state, checkState)
     if math.random(0, 200) == 0 then
-        return true
+        return true, tonumber(state.last_seen) / 10^6 -- Convert back to seconds
     else
         return false
     end
@@ -130,6 +133,17 @@ end
 function module.checkFinalizer(checkState, keptFlows, purgedFlows)
     local t = lm.getTime() * 10^6
     log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", (t - tonumber(checkState.start_time)) / 10^6, purgedFlows, keptFlows, purgedFlows+keptFlows)
+end
+
+
+-- #### Dumper configuration ####
+-- Only applicable if mode is set to "qq"
+
+module.maxDumperRules = 1000
+
+-- Function that returns a packet filter string in pcap syntax from a given flow key
+function module.buildPacketFilter(flowKey)
+    return ""
 end
 
 return module
