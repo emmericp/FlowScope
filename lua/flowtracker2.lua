@@ -14,6 +14,8 @@ local timer = require "timer"
 local pcap = require "pcap"
 local ev = require "event"
 local qqLib = require "qq"
+local pf = require "pf"
+local match = require "pf.match"
 
 
 local mod = {}
@@ -76,9 +78,10 @@ function mod.new(args)
     obj.filterPipes = {}
 
     -- Setup table for QQs
-    if args.mode == "qq" then
-        obj.qq = {}
-    end
+    obj.qq = {}
+
+    -- Shutdown delay to catch packets hanging in QQ. In ms
+    obj.shutdownDelay = 3000
 
     return obj
 end
@@ -86,7 +89,7 @@ end
 -- Starts a new analyzer
 function flowtracker:startNewAnalyzer(userModule, queue)
     local p = pipe.newFastPipe()
-    self.pipes[#self.pipes + 1] = p -- Store pipes so the checker can access them
+    table.insert(self.pipes, p) -- Store pipes so the checker can access them
     if ffi.istype("qq_t", queue) then
         log:info("QQ mode")
         lm.startTask("__FLOWTRACKER_ANALYZER_QQ", self, userModule, queue, p)
@@ -107,7 +110,7 @@ end
 function flowtracker:startNewDumper(path, qq)
     local p = pipe.newSlowPipe()
     table.insert(self.filterPipes, p)
-    lm.startTask("__FLOWTRACKER_DUMPER", self, qq, path, p)
+    lm.startTask("__FLOWTRACKER_DUMPER", self, #self.filterPipes, qq, path, p)
 end
 
 -- Starts a new task that inserts packets from a NIC queue into a QQ
@@ -141,7 +144,7 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
     local rxCtr = stats:newPktRxCounter("Analyzer")
 
     --require("jit.p").start("a2")
-    while lm.running() do
+    while lm.running(self.shutdownDelay) do
         local rx = queue:tryRecv(bufs, 10)
         for i = 1, rx do
             local buf = bufs[i]
@@ -149,22 +152,33 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
             ffi.fill(keyBuf, sz) -- Clear shared key buffer
             local success, index = extractFlowKey(buf, keyBuf)
             if success then
+                local flowKey = ffi.cast(userModule.flowKeys[index] .. "*", keyBuf) -- Correctly cast alias to the key buffer
                 local isNew = self.maps[index]:access(accs[index], keyBuf)
                 local t = accs[index]:get()
                 local valuePtr = ffi.cast(stateType, t)
                 if isNew then
-                    -- copy-constructed
+                    -- Copy-construct default state
                     ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-                    -- Alloc new keyBuf and copy flow into it
-                    local t = memory.alloc("void*", sz)
-                    ffi.fill(t, sz)
-                    ffi.copy(t, keyBuf, sz)
-                    local info = memory.alloc("struct new_flow_info*", ffi.sizeof("struct new_flow_info"))
-                    info.index = index
-                    info.flow_key = t
-                    flowPipe:trySend(info)
+
+                    -- Copy keyBuf and inform checker about new flow
+                    if userModule.checkInterval then -- Only bother if there are dumpers
+                        local t = memory.alloc("void*", sz)
+                        ffi.fill(t, sz)
+                        ffi.copy(t, keyBuf, sz)
+                        local info = memory.alloc("struct new_flow_info*", ffi.sizeof("struct new_flow_info"))
+                        info.index = index
+                        info.flow_key = t
+                        -- we use send here since we know a checker exists and deques/frees our flow keys
+                        flowPipe:send(info)
+                    end
                 end
-                handler(keyBuf, valuePtr, buf, isNew)
+                if handler(flowKey, valuePtr, buf, isNew) then
+                    local event = ev.newEvent(buildPacketFilter(flowKey), ev.create)
+                    log:debug("[Analyzer]: Handler requested dump of flow %s", flowKey)
+                    for _, pipe in ipairs(self.filterPipes) do
+                        pipe:send(event)
+                    end
+                end
                 accs[index]:release()
             end
         end
@@ -188,6 +202,7 @@ function flowtracker:analyzerQQ(userModule, queue, flowPipe)
     -- Cache functions
     local handler = userModule.handlePacket
     local extractFlowKey = userModule.extractFlowKey
+    local buildPacketFilter = userModule.buildPacketFilter
 
     -- Allocate hash map accessors
     local accs = {}
@@ -202,8 +217,8 @@ function flowtracker:analyzerQQ(userModule, queue, flowPipe)
 
     local rxCtr = stats:newPktRxCounter("Analyzer")
 
-    --require("jit.p").start("a2")
-    while lm.running() do
+    --require("jit.p").start("a")
+    while lm.running(self.shutdownDelay) do
         local storage = queue:tryPeek()
         if storage ~= nil then
             for i = 0, storage:size() - 1 do
@@ -212,22 +227,33 @@ function flowtracker:analyzerQQ(userModule, queue, flowPipe)
                 ffi.fill(keyBuf, sz) -- Clear shared key buffer
                 local success, index = extractFlowKey(buf, keyBuf)
                 if success then
+                    local flowKey = ffi.cast(userModule.flowKeys[index] .. "*", keyBuf) -- Correctly cast alias to the key buffer
                     local isNew = self.maps[index]:access(accs[index], keyBuf)
                     local t = accs[index]:get()
                     local valuePtr = ffi.cast(stateType, t)
                     if isNew then
-                        -- copy-constructed
+                        -- Copy-construct default state
                         ffi.copy(valuePtr, self.defaultState, ffi.sizeof(self.defaultState))
-                        -- Alloc new keyBuf and copy flow into it
-                        local t = memory.alloc("void*", sz)
-                        ffi.fill(t, sz)
-                        ffi.copy(t, keyBuf, sz)
-                        local info = memory.alloc("struct new_flow_info*", ffi.sizeof("struct new_flow_info"))
-                        info.index = index
-                        info.flow_key = t
-                        flowPipe:trySend(info)
+
+                        -- Copy keyBuf and inform checker about new flow
+                        if userModule.checkInterval then -- Only bother if there are dumpers
+                            local t = memory.alloc("void*", sz)
+                            ffi.fill(t, sz)
+                            ffi.copy(t, keyBuf, sz)
+                            local info = memory.alloc("struct new_flow_info*", ffi.sizeof("struct new_flow_info"))
+                            info.index = index
+                            info.flow_key = t
+                            -- we use send here since we know a checker exists and deques/frees our flow keys
+                            flowPipe:send(info)
+                        end
                     end
-                    handler(keyBuf, valuePtr, buf, isNew)
+                    if handler(flowKey, valuePtr, buf, isNew) then
+                        local event = ev.newEvent(buildPacketFilter(flowKey), ev.create)
+                        log:debug("[Analyzer]: Handler requested dump of flow %s", flowKey)
+                        for _, pipe in ipairs(self.filterPipes) do
+                            pipe:send(event)
+                        end
+                    end
                     accs[index]:release()
                 end
             end
@@ -244,10 +270,15 @@ end
 
 function flowtracker:checker(userModule)
     userModule = loadfile(userModule)()
+    if not userModule.checkInterval then
+        log:info("[Checker]: Disabled by user module")
+        return
+    end
     local stateType = ffi.typeof(userModule.stateType .. "*")
     local checkTimer = timer:new(self.checkInterval)
     local initializer = userModule.checkInitializer or function() end
     local finalizer = userModule.checkFinalizer or function() end
+    local buildPacketFilter = userModule.buildPacketFilter
     local checkState = userModule.checkState or "void*"
 
     -- Flow list
@@ -266,8 +297,8 @@ function flowtracker:checker(userModule)
         table.insert(accs, v.newAccessor())
     end
 
-    require("jit.p").start("a")
-    while lm.running() do
+    --require("jit.p").start("a")
+    while lm.running(self.shutdownDelay) do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
             if newFlow ~= nil then
@@ -285,13 +316,20 @@ function flowtracker:checker(userModule)
             local cs = ffi.new(checkState)
             initializer(cs)
             for i = #flows, 1, -1 do
-                local index, flowKey = flows[i].index, flows[i].flow_key
-                local isNew = self.maps[index]:access(accs[index], flowKey)
+                local index, keyBuf = flows[i].index, flows[i].flow_key
+                local isNew = self.maps[index]:access(accs[index], keyBuf)
                 assert(isNew == false) -- Must hold or we have an error
                 local valuePtr = ffi.cast(stateType, accs[index]:get())
-                if userModule.checkExpiry(flowKey, valuePtr, cs) then
-                    deleteFlow(flows[i])
+                local flowKey = ffi.cast(userModule.flowKeys[index] .. "*", keyBuf)
+                local expired, ts = userModule.checkExpiry(flowKey, valuePtr, cs)
+                if expired then
+                    assert(ts)
                     self.maps[index]:erase(accs[index])
+                    local event = ev.newEvent(buildPacketFilter(flowKey), ev.delete, nil, ts)
+                    for _, pipe in ipairs(self.filterPipes) do
+                        pipe:send(event)
+                    end
+                    deleteFlow(flows[i])
                     purged = purged + 1
                 else
                     addToList(keepList, flows[i])
@@ -305,63 +343,79 @@ function flowtracker:checker(userModule)
             log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
         end
     end
-    require("jit.p").stop()
+    --require("jit.p").stop()
     for _, v in ipairs(accs) do
         v:free()
     end
     log:info("[Checker]: Shutdown")
 end
 
-function flowtracker:dumper(qq, path, filterPipe)
-    pcap:setInitialFilesize(2^21) -- 2 MiB
-    local ruleSet = {} -- Used to maintain the rules
-    local ruleList = {} -- Build from the ruleSet for performance
-    local needRebuild = false
+function flowtracker:dumper(id, qq, path, filterPipe)
+    pcap:setInitialFilesize(2^19) -- 0.5 MiB
+    local ruleSet = {} -- Used to maintain the filter strings and pcap handles
+    local handlers = {} -- Holds handle functions for the matcher
+    local matcher = nil
+    local currentTS = 0 -- Timestamp of the current packet. Used to expire rules and to pass a ts to the pcap writer
+    local ruleCtr = 0
     local maxRules = self.maxDumperRules
+    local needRebuild = true
     local rxCtr = stats:newManualRxCounter("Dumper", "plain")
-    local lastTS = 0
 
+    log:setLevel("INFO")
+
+    require("jit.p").start("a")
     local handleEvent = function(event)
         if event == nil then
             return
         end
-        log:debug("[Dumper %i]: Got event %i, %s, %i", id, event.action, event.filter, event.timestamp or 0)
-        if event.action == ev.create and ruleSet[event.id] == nil and #ruleList < maxRules then
+        log:debug("[Dumper]: Got event %i, %s, %i", event.action, event.filter, event.timestamp or 0)
+        if event.action == ev.create and ruleSet[event.id] == nil and ruleCtr < maxRules then
             local triggerWallTime = wallTime()
             local pcapFileName = path .. "/" .. ("FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.id .. " part " .. id .. ".pcap"):gsub("[ /\\]", "_")
             local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
-            ruleSet[event.id] = {pfFn = pf.compile_filter(event.filter), pcap = pcapWriter}
+            ruleSet[event.id] = {filter = event.filter, pcap = pcapWriter}
             needRebuild = true
         elseif event.action == ev.delete and ruleSet[event.id] ~= nil then
             ruleSet[event.id].timestamp = event.timestamp
-            log:info("[Dumper]: Marked rule %s as expired", event.id)
+            log:info("[Dumper]: Marked rule %s as expired at %f, now %f", event.id, event.timestamp, currentTS)
         end
     end
 
-    while lm.running() do
+    while lm.running(self.shutdownDelay) do
         -- Get new filters
+        local event
         repeat
-            local event = filterPipe:tryRecv(0)
+            event = filterPipe:tryRecv(0)
             handleEvent(event)
         until event == nil
 
         -- Check for expired rules
-        for k, v in pairs(ruleSet) do
-            if v.timestamp ~= nil and lastTS > v.timestamp then
+        for k, _ in pairs(ruleSet) do
+            if ruleSet[k].timestamp and currentTS > ruleSet[k].timestamp then
                 ruleSet[k].pcap:close()
-                log:info("[Dumper %i#]: Expired rule %s, %i > %i", id, k, lastTS, v.timestamp)
+                log:info("[Dumper #%i]: Expired rule %s, %f > %f", id, k, currentTS, ruleSet[k].timestamp)
                 ruleSet[k] = nil
                 needRebuild = true
             end
         end
 
-        -- Rebuild ruleList from ruleSet
+        -- Rebuild matcher from ruleSet
         if needRebuild then
-            ruleList = {}
+            handlers = {}
+            local lines = {}
+            local idx = 0
             for _, v in pairs(ruleSet) do
-                table.insert(ruleList, {v.pfFn, v.pcap})
+                idx = idx + 1
+                handlers["h" .. idx] = function(data, l) v.pcap:write(currentTS, data, l) end -- We can't pass a timestamp through the pflua matcher directly, so we keep it in a local variable before calling it
+                table.insert(lines, v.filter .. " => " .. "h" .. idx .. "()") -- Build line in pfmatch syntax
             end
-            log:info("[Dumper]: total number of rules: %i", #ruleList)
+            log:info("[Dumper]: total number of rules: %i", idx)
+            ruleCtr = idx
+            local allLines = table.concat(lines, "\n")
+            log:debug("[Dumper]: all rules:\n%s", allLines)
+            --print(match.compile("match {" .. allLines .. "}", {source = true}))
+            matcher = match.compile("match {" .. allLines .. "}")
+            needRebuild = false
         end
 
         -- Filter packets
@@ -371,20 +425,16 @@ function flowtracker:dumper(qq, path, filterPipe)
             for i = 0, storage:size() - 1 do
                 local pkt = storage:getPacket(i)
                 local timestamp = pkt:getTimestamp()
-                local data = pkt:getData()
+                local data = pkt:getBytes()
                 local len = pkt:getSize()
-                lastTS = timestamp
-                -- Do not use ipairs() here
-                for j = 1, #ruleList do
-                    local filterFn = ruleList[j][1]
-                    local pcap = ruleList[j][2]
-                    if filterFn(data, len) then
-                        pcap:write(timestamp, data, len)
-                    end
-                end
+                currentTS = timestamp
+                matcher(handlers, data, len)
             end
             storage:release()
+        else
+           lm.sleepMillisIdle(1)
         end
+        rxCtr:update(0, 0)
     end
     require("jit.p").stop()
     rxCtr:finalize()
