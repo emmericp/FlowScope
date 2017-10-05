@@ -6,7 +6,7 @@ local flowtracker = require "flowtracker2"
 local qq = require "qq"
 
 local jit = require "jit"
-jit.opt.start("maxrecord=10000", "maxirconst=1000", "loopunroll=40")
+jit.opt.start("maxrecord=20000", "maxirconst=20000", "loopunroll=4000")
 
 function configure(parser)
     parser:argument("module", "Path to user-defined analysis module")
