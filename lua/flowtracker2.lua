@@ -143,7 +143,7 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
     local bufs = memory.bufArray()
     local rxCtr = stats:newPktRxCounter("Analyzer")
 
-    --require("jit.p").start("a2")
+    --require("jit.p").start("a")
     while lm.running(self.shutdownDelay) do
         local rx = queue:tryRecv(bufs, 10)
         for i = 1, rx do
@@ -172,13 +172,8 @@ function flowtracker:analyzer(userModule, queue, flowPipe)
                         flowPipe:send(info)
                     end
                 end
-                if handler(flowKey, valuePtr, buf, isNew) then
-                    local event = ev.newEvent(buildPacketFilter(flowKey), ev.create)
-                    log:debug("[Analyzer]: Handler requested dump of flow %s", flowKey)
-                    for _, pipe in ipairs(self.filterPipes) do
-                        pipe:send(event)
-                    end
-                end
+                -- direct mode has no dumpers, so we can ignore dump requests of the handler
+                handler(flowKey, valuePtr, buf, isNew)
                 accs[index]:release()
             end
         end
@@ -278,7 +273,7 @@ function flowtracker:checker(userModule)
     local checkTimer = timer:new(self.checkInterval)
     local initializer = userModule.checkInitializer or function() end
     local finalizer = userModule.checkFinalizer or function() end
-    local buildPacketFilter = userModule.buildPacketFilter
+    local buildPacketFilter = userModule.buildPacketFilter or function() end
     local checkState = userModule.checkState or "void*"
 
     -- Flow list
