@@ -47,7 +47,7 @@ module.checkState = "struct check_state"
 function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
     if flowState.last_seen + 30 * 10^6 < t then
-        return true
+        return true, t / 10^6
     else
         checkState.active_flows = checkState.active_flows + 1
         checkState.cumulative_packets = checkState.cumulative_packets + flowState.packet_counter
