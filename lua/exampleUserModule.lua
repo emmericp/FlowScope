@@ -15,7 +15,7 @@ ffi.cdef [[
         uint64_t byte_counter;
         uint64_t first_seen;
         uint64_t last_seen;
-        uint8_t some_flags;
+        uint8_t tracked;
         uint16_t some_fancy_data[20];
     };
 
@@ -53,7 +53,7 @@ module.stateType = "struct my_flow_state"
 
 -- Custom default state for new flows
 -- See ffi.new() for table initializer rules
-module.defaultState = {packet_counter = 0, some_flags = 0xab}
+module.defaultState = {packet_counter = 0, some_fancy_data = {0xab}}
 
 -- Function that builds the appropriate flow key for the packet given in buf
 -- return true and the hash map index for successful extraction, false if a packet should be ignored
@@ -94,7 +94,13 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
         state.first_seen = ts
     end
     state.last_seen = ts
-    return false
+
+    if math.random(0, 10000) == 0 then
+        state.tracked = 1
+        return true
+    else
+        return false
+    end
 end
 
 
@@ -103,7 +109,7 @@ end
 -- Set the interval in which the checkExpiry function should be called.
 -- Don't define it or set it do nil to disable the checker task
 -- float in seconds
-module.checkInterval = 5
+module.checkInterval = 30
 
 -- Per checker run persistent state, e.g., to track overall flow changes
 ffi.cdef [[
@@ -117,11 +123,12 @@ module.checkState = "struct check_state"
 -- Returns false for active flows.
 -- Returns true and a timestamp in seconds for flows that are expired.
 function module.checkExpiry(flowKey, state, checkState)
-    if math.random(0, 200) == 0 then
-        return true, tonumber(state.last_seen) / 10^6 -- Convert back to seconds
-    else
-        return false
+    local t = lm.getTime()
+    local last = tonumber(state.last_seen) / 10^6 -- Convert back to seconds
+    if state.tracked == 1 and last + 30 < t then
+        return true, last
     end
+    return false
 end
 
 -- Function that gets called once per checker run at very beginning, before any flow is touched
@@ -139,11 +146,15 @@ end
 -- #### Dumper configuration ####
 -- Only applicable if mode is set to "qq"
 
-module.maxDumperRules = 1000
+module.maxDumperRules = 50
 
 -- Function that returns a packet filter string in pcap syntax from a given flow key
 function module.buildPacketFilter(flowKey)
-    return ""
+    local ip4AddrDst = ffi.new("union ip4_address")
+    local ip4AddrSrc = ffi.new("union ip4_address")
+    ip4AddrDst:set(flowKey.ip_dst)
+    ip4AddrSrc:set(flowKey.ip_src)
+    return ("ip proto %i and host %s and host %s and port %i and port %i"):format(flowKey.proto, ip4AddrSrc:getString(), ip4AddrDst:getString(), flowKey.port_dst, flowKey.port_src)
 end
 
 return module
