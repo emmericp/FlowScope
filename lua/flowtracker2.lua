@@ -369,6 +369,7 @@ function flowtracker:dumper(id, qq, path, filterPipe)
             local pcapFileName = path .. "/" .. ("FlowScope-dump " .. os.date("%Y-%m-%d %H-%M-%S", triggerWallTime) .. " " .. event.id .. " part " .. id .. ".pcap"):gsub("[ /\\]", "_")
             local pcapWriter = pcap:newWriter(pcapFileName, triggerWallTime)
             ruleSet[event.id] = {filter = event.filter, pcap = pcapWriter}
+            ruleCtr = ruleCtr + 1
             needRebuild = true
         elseif event.action == ev.delete and ruleSet[event.id] ~= nil then
             ruleSet[event.id].timestamp = event.timestamp
@@ -380,7 +381,7 @@ function flowtracker:dumper(id, qq, path, filterPipe)
         -- Get new filters
         local event
         repeat
-            event = filterPipe:tryRecv(0)
+            event = filterPipe:tryRecv(10)
             handleEvent(event)
         until event == nil
 
@@ -390,6 +391,7 @@ function flowtracker:dumper(id, qq, path, filterPipe)
                 ruleSet[k].pcap:close()
                 log:info("[Dumper #%i]: Expired rule %s, %f > %f", id, k, currentTS, ruleSet[k].timestamp)
                 ruleSet[k] = nil
+                ruleCtr = ruleCtr - 1
                 needRebuild = true
             end
         end
@@ -405,7 +407,6 @@ function flowtracker:dumper(id, qq, path, filterPipe)
                 table.insert(lines, v.filter .. " => " .. "h" .. idx .. "()") -- Build line in pfmatch syntax
             end
             log:info("[Dumper]: total number of rules: %i", idx)
-            ruleCtr = idx
             local allLines = table.concat(lines, "\n")
             log:debug("[Dumper]: all rules:\n%s", allLines)
             --print(match.compile("match {" .. allLines .. "}", {source = true}))
@@ -427,7 +428,7 @@ function flowtracker:dumper(id, qq, path, filterPipe)
             end
             storage:release()
         else
-           lm.sleepMillisIdle(1)
+           lm.sleepMicrosIdle(10)
         end
         rxCtr:update(0, 0)
     end
