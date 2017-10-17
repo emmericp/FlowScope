@@ -31,31 +31,32 @@ module.flowKeys = {
 
 local ip4Tuple = {}
 
+local stringTemplate = "ipv4_5tuple{ip_dst: %s, ip_src: %s, port_dst: %i, port_src: %i, proto: %s}"
 function ip4Tuple:__tostring()
-    local template = "ipv4_5tuple{ip_dst: %s, ip_src: %s, port_dst: %i, port_src: %i, proto: %s}"
     local ip4AddrDst = ffi.new("union ip4_address")
     local ip4AddrSrc = ffi.new("union ip4_address")
     ip4AddrDst:set(self.ip_dst)
     ip4AddrSrc:set(self.ip_src)
     -- L4 Protocol
-    local proto = ""
+    local proto
     if self.proto == ip4.PROTO_UDP then
         proto = "udp"
     elseif self.proto == ip4.PROTO_TCP then
         proto = "tcp"
     else
-        proto = tonumber(self.proto)
+        proto = tostring(tonumber(self.proto))
     end
-    return template:format(ip4AddrDst:getString(), ip4AddrSrc:getString(), tonumber(self.port_dst), tonumber(self.port_src), proto)
+    return stringTemplate:format(ip4AddrDst:getString(), ip4AddrSrc:getString(), tonumber(self.port_dst), tonumber(self.port_src), proto)
 end
 
+-- TODO: Rearrange expressions to generate better lua code in pflua
 local pflangTemplate = "src host %s src port %i dst host %s dst port %i %s"
 function ip4Tuple:getPflang()
     local ip4AddrDst = ffi.new("union ip4_address")
     local ip4AddrSrc = ffi.new("union ip4_address")
     ip4AddrDst:set(self.ip_dst)
     ip4AddrSrc:set(self.ip_src)
-    local proto = ""
+    local proto
     if self.proto == ip4.PROTO_UDP then
         proto = "udp"
     elseif self.proto == ip4.PROTO_TCP then
