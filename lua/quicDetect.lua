@@ -47,6 +47,7 @@ module.mode = "qq"
 local shared = namespace:get()
 local IDtable = nil
 local acc = nil
+local IDkeyBuf = nl
 
 shared.lock(function()
 if shared.tbl == nil then
@@ -55,6 +56,7 @@ end
 IDtable = shared.tbl
 acc = IDtable.newAccessor()
 ffi.gc(acc, acc.free)
+IDkeyBuf = ffi.new("uint8_t[?]", IDtable.keyBufSize())
 end)
 
 
@@ -75,7 +77,6 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
     if isFirstPacket then
         state.first_seen = t
     end
-    print(flowKey)
 
     local udpPkt = pktLib.getUdp4Packet(buf)
     --local quicFrame = udpPkt.payload.uint8
@@ -89,14 +90,13 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
         end
         state.connection_id = cid
         -- Check ID -> 5-Tuple map
-        local keyBuf = ffi.new("uint8_t[?]", IDtable.keyBufSize())
-        ffi.copy(keyBuf, udpPkt.payload.uint8 + 1, 8)
-        local new = IDtable:access(acc, keyBuf)
+        ffi.copy(IDkeyBuf, udpPkt.payload.uint8 + 1, 8)
+        local new = IDtable:access(acc, IDkeyBuf)
         local tpl = ffi.cast("struct ipv4_5tuple&", acc:get())
         if new then
             ffi.copy(tpl, flowKey, ffi.sizeof("struct ipv4_5tuple"))
         end
-        if ffi.C.memcmp(tpl, flowKey, ffi.sizeof(flowKey)) ~= 0 then
+        if ffi.C.memcmp(tpl, flowKey, ffi.sizeof("struct ipv4_5tuple")) ~= 0 then
             log:warn("Connection migration of id %i from %s to %s", tonumber(cid), tpl, flowKey)
             state.tracked = 1
             dump = true
@@ -109,7 +109,7 @@ function module.handlePacket(flowKey, state, buf, isFirstPacket)
             log:warn("First packet in flow and no connection ID!")
         end
     end
-    return true
+    return false
 end
 
 
