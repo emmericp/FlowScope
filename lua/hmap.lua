@@ -1,7 +1,6 @@
 local ffi = require "ffi"
 local log = require "log"
 local flowtrackerlib = ffi.load("../build/flowtracker")
-local tuple = require "tuple"
 local C = ffi.C
 
 local hmapTemplate = [[
@@ -76,6 +75,9 @@ function makeHashmapFor(keySize, valueSize)
     function map.keyBufSize()
         return keySize
     end
+    function map.valueSize()
+        return valueSize
+    end
     local accessor = {}
     function accessor:get()
         return flowtrackerlib["hmapk" .. keySize .. "v" .. valueSize .. "_accessor_get_value"](self)
@@ -102,7 +104,7 @@ for _, k in pairs(keySizes) do
 end
 
 -- Helper function to get the size of the largest flow key
--- args is a table hash maps
+-- args is a table of hash maps
 function module.getLargestKeyBufSize(args)
     local sz = {}
     for _, v in ipairs(args) do
