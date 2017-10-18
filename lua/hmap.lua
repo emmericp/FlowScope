@@ -13,6 +13,7 @@ hmapk{key_size}v{value_size}_accessor* hmapk{key_size}v{value_size}_new_accessor
 void hmapk{key_size}v{value_size}_accessor_free(hmapk{key_size}v{value_size}_accessor* a);
 void hmapk{key_size}v{value_size}_accessor_release(hmapk{key_size}v{value_size}_accessor* a);
 bool hmapk{key_size}v{value_size}_access(hmapk{key_size}v{value_size}* map, hmapk{key_size}v{value_size}_accessor* a, const void* key);
+bool hmapk{key_size}v{value_size}_find(hmapk{key_size}v{value_size}* map, hmapk{key_size}v{value_size}_accessor* a, const void* key);
 bool hmapk{key_size}v{value_size}_erase(hmapk{key_size}v{value_size}* map, hmapk{key_size}v{value_size}_accessor* a);
 uint8_t* hmapk{key_size}v{value_size}_accessor_get_value(hmapk{key_size}v{value_size}_accessor* a);
 ]]
@@ -65,6 +66,9 @@ function makeHashmapFor(keySize, valueSize)
     end
     function map:access(a, tpl)
         return flowtrackerlib["hmapk" .. keySize .. "v" .. valueSize .. "_access"](self, a, tpl)
+    end
+    function map:find(a, tpl)
+        return flowtrackerlib["hmapk" .. keySize .. "v" .. valueSize .. "_find"](self, a, tpl)
     end
     function map.newAccessor()
         return flowtrackerlib["hmapk" .. keySize .. "v" .. valueSize .. "_new_accessor"]()

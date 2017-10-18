@@ -117,6 +117,9 @@ using namespace var_hash_map;
     bool hmapk##key_size##v##value_size##_erase(hmapk##key_size##v##value_size* map, hmapk##key_size##v##value_size::accessor* a) { \
         if (a->empty()) std::terminate();\
         return map->erase(*a); \
+    } \
+    bool hmapk##key_size##v##value_size##_find(hmapk##key_size##v##value_size* map, hmapk##key_size##v##value_size::accessor* a, const void* key) { \
+        return map->find(*a, *static_cast<const K<key_size>*>(key)); \
     }
 
 #define MAP_VALUES(value_size) \
