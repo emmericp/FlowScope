@@ -34,6 +34,8 @@ function master(args)
         log:error(err)
     end
     local userModule = f()
+    -- TODO: pass more/all CLI flags to module
+    userModule.logLevel = args.logLevel
     local tracker = flowtracker.new(userModule)
 
     -- this part should be wrapped by flowscope and exposed via CLI arguments
