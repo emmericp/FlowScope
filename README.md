@@ -1,3 +1,13 @@
+New version with flow tracking and more
+=======================================
+
+Check out this fork: https://github.com/pudelkoM/FlowScope
+
+It integrates fancy automatic flow tracking into FlowScope, but it's not yet cleaned up.
+
+Old documentation
+=================
+
 FlowScope is an oscilloscope for your network traffic. It records all traffic continuously in a ring buffer and dumps specific flows to disk on trigger events.
 Triggers can be packets matching a user-defined filter or an external signal.
 
