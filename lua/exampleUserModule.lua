@@ -112,12 +112,7 @@ end
 module.checkInterval = 30
 
 -- Per checker run persistent state, e.g., to track overall flow changes
-ffi.cdef [[
-    struct check_state {
-        uint64_t start_time;
-    };
-]]
-module.checkState = "struct check_state"
+module.checkState = {start_time = 0}
 
 -- Function that gets called in regular intervals to decide if a flow is still active.
 -- Returns false for active flows.

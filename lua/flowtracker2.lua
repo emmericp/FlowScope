@@ -274,7 +274,7 @@ function flowtracker:checker(userModule)
     local initializer = userModule.checkInitializer or function() end
     local finalizer = userModule.checkFinalizer or function() end
     local buildPacketFilter = userModule.buildPacketFilter or function() end
-    local checkState = userModule.checkState or "void*"
+    local checkState = userModule.checkState or {}
 
     -- Flow list
     local flows = {}
@@ -292,7 +292,7 @@ function flowtracker:checker(userModule)
         table.insert(accs, v.newAccessor())
     end
 
-    --require("jit.p").start("a")
+--     require("jit.p").start("a")
     while lm.running(self.shutdownDelay) do
         for _, pipe in ipairs(self.pipes) do
             local newFlow = pipe:tryRecv(10)
@@ -305,18 +305,18 @@ function flowtracker:checker(userModule)
         if checkTimer:expired() then
             log:info("[Checker]: Started")
             checkTimer:reset() -- Reseting the timer first makes the checker self-clocking
+--             require("jit.p").start("a")
             local t1 = time()
             local purged, keep = 0, 0
             local keepList = {}
-            local cs = ffi.new(checkState)
-            initializer(cs)
+            initializer(checkState)
             for i = #flows, 1, -1 do
                 local index, keyBuf = flows[i].index, flows[i].flow_key
                 local isNew = self.maps[index]:access(accs[index], keyBuf)
                 assert(isNew == false) -- Must hold or we have an error
                 local valuePtr = ffi.cast(stateType, accs[index]:get())
                 local flowKey = ffi.cast(userModule.flowKeys[index] .. "*", keyBuf)
-                local expired, ts = userModule.checkExpiry(flowKey, valuePtr, cs)
+                local expired, ts = userModule.checkExpiry(flowKey, valuePtr, checkState)
                 if expired then
                     assert(ts)
                     self.maps[index]:erase(accs[index])
@@ -333,12 +333,13 @@ function flowtracker:checker(userModule)
                 accs[index]:release()
             end
             flows = keepList
-            finalizer(cs, keep, purged)
+            finalizer(checkState, keep, purged)
             local t2 = time()
             log:info("[Checker]: Done, took %fs, flows %i/%i/%i [purged/kept/total]", t2 - t1, purged, keep, purged+keep)
+--             require("jit.p").stop()
         end
     end
-    --require("jit.p").stop()
+--     require("jit.p").stop()
     for _, v in ipairs(accs) do
         v:free()
     end
