@@ -42,26 +42,51 @@ ffi.cdef [[
         uint64_t cumulative_bytes;
     };
 ]]
-module.checkState = "struct check_state"
+-- module.checkState = ffi.new("struct check_state")
+-- module.checkState = {}
 
 function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
+
+    local b = flowState.byte_counter
+    local p = flowState.packet_counter
+    table.insert(checkState.tops, {b, p, flowKey})
+    table.sort(checkState.tops, function(a, b)
+        return a[1] > b[1]
+    end)
+    while #checkState.tops > 10 do
+        table.remove(checkState.tops)
+    end
+    -- Reset flow counter for most active flow in last 5 seconds, maybe use separate counter or expire faster
+    flowState.byte_counter = 0
+    flowState.packet_counter = 0
     if flowState.last_seen + 30 * 10^6 < t then
         return true, t / 10^6
     else
         checkState.active_flows = checkState.active_flows + 1
-        checkState.cumulative_packets = checkState.cumulative_packets + flowState.packet_counter
-        checkState.cumulative_bytes = checkState.cumulative_bytes + flowState.byte_counter
+        checkState.cumulative_packets = checkState.cumulative_packets + p
+        checkState.cumulative_bytes = checkState.cumulative_bytes + b
         return false
     end
 end
 
 function module.checkInitializer(checkState)
     checkState.start_time = lm.getTime() * 10^6
+    checkState.active_flows = 0ull
+    checkState.cumulative_packets = 0ull
+    checkState.cumulative_bytes = 0ull
+    checkState.tops = {}
 end
 
 function module.checkFinalizer(checkState)
     local t = lm.getTime() * 10^6
+
+    print("Top flows in this run:")
+    print("#", "Bytes", "Packets", "Flow")
+    for k,v in pairs(checkState.tops) do
+        print(k, v[1], v[2], v[3])
+    end
+
     print(string.format("Active flows %i, cumulative packets %i, cumulative bytes %i, took %fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_bytes), (t - tonumber(checkState.start_time)) / 10^6))
 end
 
