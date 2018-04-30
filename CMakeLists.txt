@@ -26,11 +26,8 @@ ADD_LIBRARY(${PRJ} SHARED ${QQ_SRC})
 
 
 SET(FLOWTRACKER_SRC
-    src/flowtracker.cpp
-    src/rte_allocator.hpp
     src/tuple.hpp
     src/tuple.cpp
-    src/tbb_wrapper.cpp
     src/var_hashmap.cpp
 )
 ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
