@@ -17,24 +17,31 @@ to set the compiler if gcc 5 is not your default.
 Usage
 =====
 
+## Immediate mode without buffering/dumping
+
 A simple test setup with synthetic traffic for quick testing can be built with two directly connected machines.
 
-* Install FlowScope on host A und [MoonGen](https://github.com/emmericp/MoonGen) on host B
-* Clone our [test repo](https://github.com/emmericp/flowscope-tests) containing MoonGen scripts on host B
-* Run `sudo ./libmoon/build/libmoon flowscope.lua 0 --trigger-expr 'udp port 60000' --dumper-expr 'host $srcIP'` on host A
-* Run `sudo /path/to/MoonGen/build/MoonGen test-high-background-traffic.lua 0 -t 4` on host B
+* Install FlowScope on host A und [libmoon](https://github.com/emmericp/libmoon) on host B
+* Start monitoring on host A: ```./libmoon/build/libmoon lua/flowscope.lua examples/liveStatistician.lua <dev>```
+* Run ```./build/libmoon examples/pktgen.lua --rate=5000 <dev>``` on host B
 
-The `test-high-background-traffic.lua` MoonGen script generates a lot of random flows in the subnet 10.0.0.0/16 on random ports in the range 1000 to 10000.
-One of these IPs will generate a single packet to UDP port 60000 after a configurable delay (`-t 4`), this triggers FlowScope and all traffic from this IP is dumped.
-You can also run the packet generator more than once in a single session to take multiple captures.
-Run any of the example scripts (or FlowScope itself) with `-h` for further options.
+The `pktgen.lua` MoonGen script generates 1000 UDP flows in the subnet 10.0.0.0/16 on random ports in the range 1234 to 2234.
 
-You can also manually trigger FlowScope by sending `SIGUSR1` to the process. This can be used to integrate external monitoring systems.
+For a 40 Gbit XL710 NIC you should see similar output like this on the monitor host:
+```
+Top flows over sliding 5s window:
+#       bps     pps     Flow
+1 649586.24 10826.44 ipv4_5tuple{ip_a: 10.0.0.10, ip_b: 10.1.0.10, port_a: 2143, port_b: 1234, proto: udp}
+2 648500.83 10808.35 ipv4_5tuple{ip_a: 10.0.0.10, ip_b: 10.1.0.10, port_a: 1950, port_b: 1234, proto: udp}
+3 647902.81 10798.38 ipv4_5tuple{ip_a: 10.0.0.10, ip_b: 10.1.0.10, port_a: 2164, port_b: 1234, proto: udp}
+[...]
+Active flows 1000, cumulative packets 53329880 [10665976.00/s], cumulative bytes 3199792800 [639958560.00/s], took 0.00s
+```
 
+## QQ mode with Dumpers
 
 Hardware Requirements
 =====================
 
-1. A NIC supported by DPDK
-2. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) have this feature.
-
+1. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) have this feature.
+2. See [libmoon](https://github.com/emmericp/libmoon)
