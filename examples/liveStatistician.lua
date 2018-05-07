@@ -60,18 +60,29 @@ function module.checkInitializer(checkState)
     checkState.tops = {}
 end
 
+local function sortedInsert(t, max, entry, cmpFn)
+    if #t < max then
+        table.insert(t, entry)
+        table.sort(t, cmpFn)
+    else
+        for i=1, #t do
+            if cmpFn(entry, t[i]) then
+                table.insert(t, i, entry)
+                table.remove(t)
+                break
+            end
+        end
+    end
+end
+
 function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
 
     local b = flowState.bytes_interval
     local p = flowState.packets_interval
-    table.insert(checkState.tops, {b, p, flowKey})
-    table.sort(checkState.tops, function(a, b)
-        return a[1] > b[1]
-    end)
-    while #checkState.tops > 10 do
-        table.remove(checkState.tops)
-    end
+    local e = {b, p, flowKey}
+    local cmpFn = function(a, b) return a[1] > b[1] end
+    sortedInsert(checkState.tops, 10, e, cmpFn)
     
     -- Reset interval counter
     flowState.bytes_interval = 0
