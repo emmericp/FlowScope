@@ -78,36 +78,37 @@ end
 function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
 
-    local b = flowState.bytes_interval
-    local p = flowState.packets_interval
-    local e = {b, p, flowKey}
+    local d = tonumber(t - flowState.interval_start) / 10^6
+    local bps = tonumber(flowState.bytes_interval) / d
+    local pps = tonumber(flowState.packets_interval) / d
+    local e = {bps, pps, flowKey, flowState.interval_start, t, flowState.bytes_interval, flowState.packets_interval}
     local cmpFn = function(a, b) return a[1] > b[1] end
     sortedInsert(checkState.tops, 10, e, cmpFn)
+    
+    checkState.cumulative_packets = checkState.cumulative_packets + flowState.packets_interval
+    checkState.cumulative_bytes = checkState.cumulative_bytes + flowState.bytes_interval
     
     -- Reset interval counter
     flowState.bytes_interval = 0
     flowState.packets_interval = 0
+    flowState.interval_start = t
 
     if flowState.last_seen + inactiveFlowExpiry * 10^6 < t then
         return true, t / 10^6
     else
         checkState.active_flows = checkState.active_flows + 1
-        checkState.cumulative_packets = checkState.cumulative_packets + p
-        checkState.cumulative_bytes = checkState.cumulative_bytes + b
         return false
     end
 end
 
 function module.checkFinalizer(checkState)
     local t = lm.getTime() * 10^6
-
-    print("Top flows in this run [" .. module.checkInterval .. "s]:")
-    print("#", "Bytes", "Packets", "Flow")
+    print("Top flows over sliding " .. module.checkInterval .. "s window:")
+    print("#", "bps", "pps", "Flow")
     for k,v in pairs(checkState.tops) do
-        print(k, v[1], v[2], v[3])
-    end
-
-    print(string.format("Active flows %i, cumulative packets %i [%f/s], cumulative bytes %i [%f/s], took %fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_packets) / module.checkInterval, tonumber(checkState.cumulative_bytes), tonumber(checkState.cumulative_bytes) / module.checkInterval, (t - tonumber(checkState.start_time)) / 10^6))
+        print(string.format("%i %.2f %.2f %s", k, v[1], v[2], v[3]))
+    end    
+    print(string.format("Active flows %i, cumulative packets %i [%.2f/s], cumulative bytes %i [%.2f/s], took %.2fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_packets) / module.checkInterval, tonumber(checkState.cumulative_bytes), tonumber(checkState.cumulative_bytes) / module.checkInterval, (t - tonumber(checkState.start_time)) / 10^6))
 end
 
 return module
