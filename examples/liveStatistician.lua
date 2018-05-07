@@ -81,13 +81,13 @@ end
 function module.checkFinalizer(checkState)
     local t = lm.getTime() * 10^6
 
-    print("Top flows in this run:")
+    print("Top flows in this run [" .. module.checkInterval .. " s]:")
     print("#", "Bytes", "Packets", "Flow")
     for k,v in pairs(checkState.tops) do
         print(k, v[1], v[2], v[3])
     end
 
-    print(string.format("Active flows %i, cumulative packets %i, cumulative bytes %i, took %fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_bytes), (t - tonumber(checkState.start_time)) / 10^6))
+    print(string.format("Active flows %i, cumulative packets %i [%f/s], cumulative bytes %i [%f/s], took %fs", tonumber(checkState.active_flows), tonumber(checkState.cumulative_packets), tonumber(checkState.cumulative_packets) / module.checkInterval, tonumber(checkState.cumulative_bytes), tonumber(checkState.cumulative_bytes) / module.checkInterval, (t - tonumber(checkState.start_time)) / 10^6))
 end
 
 return module
