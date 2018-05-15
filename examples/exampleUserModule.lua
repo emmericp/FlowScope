@@ -107,7 +107,7 @@ end
 -- #### Checker configuration ####
 
 -- Set the interval in which the checkExpiry function should be called.
--- Don't define it or set it do nil to disable the checker task
+-- Don't define it or set it to nil to disable the checker task
 -- float in seconds
 module.checkInterval = 30
 
