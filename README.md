@@ -45,7 +45,7 @@ Due to their (possibly immensely) delayed processing of the packets, rules can n
 # Installation
 
 1. `git submodule update --init --recursive`
-2. Compile libmoon in the `libmoon` submodule. Follow instructions there.
+2. Compile libmoon in the `libmoon` submodule. Follow instructions [there](https://github.com/libmoon/libmoon#installation).
 3. `cd build ; cmake .. ; make ; cd ..`
 4. `./libmoon/build/libmoon flowscope.lua --help`
 
