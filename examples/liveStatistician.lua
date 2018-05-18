@@ -79,7 +79,7 @@ function module.checkExpiry(flowKey, flowState, checkState)
     local t = lm.getTime() * 10^6
 
     local d = tonumber(t - flowState.interval_start) / 10^6
-    local bps = tonumber(flowState.bytes_interval) / d
+    local bps = tonumber(flowState.bytes_interval * 8) / d
     local pps = tonumber(flowState.packets_interval) / d
     local e = {bps, pps, flowKey, flowState.interval_start, t, flowState.bytes_interval, flowState.packets_interval}
     local cmpFn = function(a, b) return a[1] > b[1] end
