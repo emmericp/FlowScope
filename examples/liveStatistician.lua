@@ -41,17 +41,6 @@ end
 
 module.checkInterval = 5
 
--- ffi.cdef [[
---     struct check_state {
---         uint64_t start_time;
---         uint64_t active_flows;
---         uint64_t cumulative_packets;
---         uint64_t cumulative_bytes;
---     };
--- ]]
--- module.checkState = ffi.new("struct check_state")
--- module.checkState = {}
-
 function module.checkInitializer(checkState)
     checkState.start_time = lm.getTime() * 10^6
     checkState.active_flows = 0ull
