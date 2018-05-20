@@ -1,0 +1,49 @@
+\documentclass[border=0pt]{standalone}
+
+\usepackage{tumcolors}
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\usetikzlibrary{plotmarks}
+
+\begin{document}
+
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\tikzset{every mark/.append style={scale=0.9}}
+\begin{tikzpicture}
+\begin{axis}[
+	footnotesize,
+	scale only axis,
+	width=7cm,
+	height=3cm,
+	xlabel=Threads,	
+	ymin=0,
+	ymax=20,
+	symbolic x coords={1, 2, 4, 6, 8, 10},
+	xtick=data,
+	ytick={0,10, 20, 30},
+	ylabel=Packet Rate {[}Mpps{]},
+	grid=major,
+	legend entries={XL710, X540-AT2},
+	legend style={at={(0.98,0.06)},anchor=south east, font=\footnotesize},
+	every axis legend/.append style={nodes={right}}
+]
+\addplot[mark=square*,color=TUMBlue] coordinates {
+(1, 2.66)
+(2, 5.33)
+(4, 10.15)
+(6, 15.47)
+(8, 16.22)
+(10, 16.69)
+};
+\addplot[mark=triangle*,color=TUMOrange] coordinates {
+(1, 2.83)
+(2, 5.55)
+(4, 10.56)
+(6, 14.82)
+(8, 14.27)
+};
+\end{axis}
+\end{tikzpicture}
+\end{document}
