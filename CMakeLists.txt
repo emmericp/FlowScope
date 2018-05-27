@@ -26,8 +26,6 @@ ADD_LIBRARY(${PRJ} SHARED ${QQ_SRC})
 
 
 SET(FLOWTRACKER_SRC
-    src/tuple.hpp
-    src/tuple.cpp
     src/var_hashmap.cpp
 )
 ADD_LIBRARY(flowtracker SHARED ${FLOWTRACKER_SRC})
