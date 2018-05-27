@@ -16,6 +16,16 @@ Further it uses the QQ ring buffer which allows non-destructive early dequeuing 
 Due to their nature as C++ template classes, ``concurrent_hash_map``s need to be instantiated with known key and value types at compile time. But this would require a module author to write their own bindings for their wanted flow keys and values. As this is bothersome, we already define and bind multiple versions of the hash maps with type agnostic byte arrays of common sizes. As long as a key/value fits in one of the byte arrays, a hash map can be created dynamically at run time with any type.
 
 
+# QQ (Queue-in-Queue) Ringbuffer
+
+FlowScope can use the QQ ringbuffer to keep packets in memory instead of discarding them immediately. 
+QQ consists of 2 levels of nested queues; the outer queue holding references to the inner ones, and the inner queues actually storing the data. This layered design improves multi-threaded performance by reducing the contention for the mutex guarding access. Instead of acquiring the lock on every insert/dequeue, threads get a complete inner queue exclusively for a short time.
+This model works nicely with the common receive-side scaling (RSS) optimization in NICs, because QQ perseveres intra-flow packet ordering.
+The inner queues store variably sized objects (like packets) tightly packed without losing useful properties like random access.
+
+Further, QQ allows access to elements a the queue head without dequeuing them, so that analyzers see new packets as soon as possible. Contrary to other buffers QQ aims to be as filled as possible. It does not allow dequeuing packets until the fill level reaches the high water mark, so that as many as possible packets are still available in case of detected anomalies.
+
+
 ## Analyzer
 
 The Analyzer(s) dequeues packets either directly from a NIC or through an intermediary ring buffer (QQ) as soon as they arrive (``rte_eth_rx_burst()``/``QQ_peek()``). With the ``extractFlowKey()`` function each packet is classified into one of the N flow tables by extracting its identifying flow feature (e.g. 5-Tuple, IP ID, etc.). This process is idempotent and does not yet involve any state. Basic pre-filtering can be performed very cheaply here, e.g., by discarding IPv4 traffic in an IPv6-only measurement. The function therefore returns if a packet is interesting at all and to which hash table it belongs. The Checker is informed about every interesting packet.
