@@ -16,10 +16,10 @@ ffi.cdef [[
     } __attribute__((__packed__));
 
     struct ipv6_5tuple {
-        uint8_t  ip_dst[16];
-        uint8_t  ip_src[16];
-        uint16_t port_dst;
-        uint16_t port_src;
+        union ip6_address ip_a;
+        union ip6_address ip_b;
+        uint16_t port_a;
+        uint16_t port_b;
         uint8_t  proto;
     } __attribute__((__packed__));
 ]]
@@ -68,6 +68,16 @@ end
 ip4Tuple.__index = ip4Tuple
 ffi.metatype("struct ipv4_5tuple", ip4Tuple)
 
+local ip6Tuple = {}
+
+local pflangTemplate6 = "ip6 proto %i and host %s and host %s and port %i and port %i"
+function ip6Tuple:getPflang()
+    return pflangTemplate6:format(self.proto, self.ip_a:getString(), self.ip_b:getString(), self.port_a, self.port_b)
+end
+
+ip6Tuple.__index = ip6Tuple
+ffi.metatype("struct ipv6_5tuple", ip6Tuple)
+
 -- Uni-directional
 function module.extractIP5TupleUni(buf, keyBuf)
     local ethPkt = pktLib.getEthernetPacket(buf)
@@ -87,7 +97,19 @@ function module.extractIP5TupleUni(buf, keyBuf)
             return true, 1
         end
     elseif ethPkt.eth:getType() == eth.TYPE_IP6 then
-        -- FIXME: Add IPv6
+        keyBuf = ffi.cast("struct ipv6_5tuple&", keyBuf)
+        local parsedPkt = pktLib.getUdp6Packet(buf)
+        keyBuf.ip_a.uint64[0] = parsedPkt.ip6.src.uint64[0]
+        keyBuf.ip_a.uint64[1] = parsedPkt.ip6.src.uint64[1]
+        keyBuf.ip_b.uint64[0] = parsedPkt.ip6.dst.uint64[0]
+        keyBuf.ip_b.uint64[1] = parsedPkt.ip6.dst.uint64[1]
+        keyBuf.port_a = parsedPkt.udp:getSrcPort()
+        keyBuf.port_b = parsedPkt.udp:getDstPort()
+        local proto = parsedPkt.ip6:getProtocol()
+        if proto == ip6.PROTO_UDP or proto == ip6.PROTO_TCP or proto == ip6.PROTO_SCTP then
+            keyBuf.proto = proto
+            return true, 2
+        end
     end
     return false
 end
@@ -99,6 +121,14 @@ function module.extractIP5Tuple(buf, keyBuf)
         keyBuf = ffi.cast("struct ipv4_5tuple&", keyBuf)
         if keyBuf.ip_a.uint32 > keyBuf.ip_b.uint32 then
             keyBuf.ip_a.uint32, keyBuf.ip_b.uint32 = keyBuf.ip_b.uint32, keyBuf.ip_a.uint32
+            keyBuf.port_a, keyBuf.port_b = keyBuf.port_b, keyBuf.port_a
+        end
+        return ok, idx
+    end
+    if ok and idx == 2 then
+        keyBuf = ffi.cast("struct ipv6_5tuple&", keyBuf)
+        if keyBuf.ip_a < keyBuf.ip_b then
+            keyBuf.ip_a, keyBuf.ip_b = keyBuf.ip_b:get(), keyBuf.ip_a:get()
             keyBuf.port_a, keyBuf.port_b = keyBuf.port_b, keyBuf.port_a
         end
         return ok, idx
