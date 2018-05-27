@@ -46,34 +46,34 @@ Due to their (possibly immensely) delayed processing of the packets, rules can n
 
 The following describes the inner workings off FlowScope and the stages a packets passes through on the example of the flow statistics user module [examples/liveStatistician.lua](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua) which calculates traffic metrics for IP flows.
 
-To get access to utility functions for time, protocol parsing and libmoon itself, the module import them in (lines 1-6)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L1-L6].
+To get access to utility functions for time, protocol parsing and libmoon itself, the module import them in [lines 1-6](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L1-L6).
 
-Next the modules defines local variables that are not exposed to the FlowScope driver. This can be configuration or values required for calculations, like here. flowStatistician defines a flow as expired once no packet has arrived in (30 seconds)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L10].
+Next the modules defines local variables that are not exposed to the FlowScope driver. This can be configuration or values required for calculations, like here. flowStatistician defines a flow as expired once no packet has arrived in [30 seconds](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L10).
 
 ### Analyzer
 
-Next come the required module definitions so that FlowScope knows what to initialize and which functions to call. Lines (12 to 22)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L12-L22] define a C struct which encapsulates the state of a flow. In (module.stateType)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L25] this type is exposed, so that FlowScope can instantiate the hash tables with this as the value type. It is possible to give an alternative default state to all-zeros with (module.defaultState)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L26].
+Next come the required module definitions so that FlowScope knows what to initialize and which functions to call. Lines [12 to 22](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L12-L22) define a C struct which encapsulates the state of a flow. In [module.stateType](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L25) this type is exposed, so that FlowScope can instantiate the hash tables with this as the value type. It is possible to give an alternative default state to all-zeros with [module.defaultState](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L26).
 Lastly the flow key types are defined. Since FlowScope already comes with a IP 5-Tuple key and extraction function, it is reused from the tuple lib.
 
-With the flowkey extracted the associated flow state is looked up from the hash table and the (handlePacket)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L29] function is called.
+With the flowkey extracted the associated flow state is looked up from the hash table and the [handlePacket](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L29) function is called.
 
 ### Checker
 
-Next is the checker configured. (module.checkInterval)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L42] sets how often it should run. Here it is set to observe 5 seconds intervals of traffic.
-With the (checkInitializer)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L44] a module can perform setup actions for the checker state. It is run once per checker-run, at the very beginning, before any flow is accessed. Here the module sets some counters and an empty list for the top X flows ((L45-49)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L45-L49]).
+Next is the checker configured. [module.checkInterval](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L42) sets how often it should run. Here it is set to observe 5 seconds intervals of traffic.
+With the [checkInitializer](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L44) a module can perform setup actions for the checker state. It is run once per checker-run, at the very beginning, before any flow is accessed. Here the module sets some counters and an empty list for the top X flows ([L45-49](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L45-L49)).
 
-The (checkExpiry)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L67] function is then called for every flow currently present in the hash tables. In its arguments it holds the flow key, flow state and checker state.
-The module calculates various (traffic metrics)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L70-L72] such as bits per second and packets per second and then (compares)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L52-L65] this flow to the others if it contains more traffic.
-For the next checker run, the counters of a flow are (reset)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L80-L83].
-Further it adds this flows metric to a (global counter)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L77-L78] to also get data about the total amount traffic.
+The [checkExpiry](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L67) function is then called for every flow currently present in the hash tables. In its arguments it holds the flow key, flow state and checker state.
+The module calculates various [traffic metrics](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L70-L72) such as bits per second and packets per second and then [compares](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L52-L65) this flow to the others if it contains more traffic.
+For the next checker run, the counters of a flow are [reset](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L80-L83).
+Further it adds this flows metric to a [global counter](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L77-L78) to also get data about the total amount traffic.
 
-Lastly the checker decides if a flow is still active by comparing its last seen value (filled in by the analyzers) to the current time ((L85-90)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L85-L90]).
+Lastly the checker decides if a flow is still active by comparing its last seen value (filled in by the analyzers) to the current time ([L85-90](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L85-L90)).
 
-At the end of a run, the collected data is printed out in the (checkFinalizer)[https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L93-L101] function.
+At the end of a run, the collected data is printed out in the [checkFinalizer](https://github.com/pudelkoM/FlowScope/blob/master/examples/liveStatistician.lua#L93-L101) function.
 
 ### Path of a Packet
 
-First the flow key has to be extracted from the packet. This is done in the (extractIP5Tuple)[https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L96] and (extractIP5TupleUni)[https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L72] functions. By using libmoon's packet library stack the packet is layer-for-layer unwrapped and the key buffer is (filled)[https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L76-L88] with the information. 
+First the flow key has to be extracted from the packet. This is done in the [extractIP5Tuple](https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L96) and [extractIP5TupleUni](https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L72) functions. By using libmoon's packet library stack the packet is layer-for-layer unwrapped and the key buffer is [filled](https://github.com/pudelkoM/FlowScope/blob/master/lua/tuple.lua#L76-L88) with the information. 
 
 ## Advanced Example - TTL Analysis
 
