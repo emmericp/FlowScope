@@ -92,7 +92,7 @@ First the flow key has to be extracted from the packet. This is done in the [ext
 1. `git submodule update --init --recursive`
 2. Compile libmoon in the `libmoon` submodule. Follow instructions [there](https://github.com/libmoon/libmoon#installation).
 3. `cd build ; cmake .. ; make ; cd ..`
-4. `./libmoon/build/libmoon flowscope.lua --help`
+4. `./libmoon/build/libmoon lua/flowscope.lua --help`
 
 FlowScope requires gcc 5 or later. You can use
 
