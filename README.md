@@ -138,4 +138,8 @@ Foo bar
 The following mini benchmark show the processing rate of FlowScope analyzer threads when doing no analysis on packets.
 To minimize influence of module functions, the benchmark was created with the noop.lua module which does only extract IP 5-Tuples and accesses the hash tables, but does not calculate anything. It more or less measures the upper performance bound.
 
+Packet rates for 1 M flows:
 ![benchmarks/noop.pdf](benchmarks/noop.png)
+
+Packet rates for 4 Threads:
+![benchmarks/flow-scaling.pdf](benchmarks/flow-scaling.png)
