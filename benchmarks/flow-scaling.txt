@@ -1,0 +1,7 @@
+# Intel(R) Xeon(R) CPU E5-2620 v3 @ 2.40GHz, Intel XL710, noop module, direct mode, send rate 17.55 Mpps, 4 rx-threads
+# flows, total Mpps, std. der. Mpps, checker time [sec]
+1000, 13.29, 0.05, 0.00049
+10000, 14.10, 0.2, 0.004
+100000, 14.5, 0.34, 0.43
+1000000, 9.05, 0.25, 0.56
+10000000, 8.62, 0.20, 6.2
