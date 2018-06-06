@@ -124,10 +124,6 @@ Top flows over sliding 5s window:
 Active flows 1000, cumulative packets 53329880 [10665976.00/s], cumulative bytes 3199792800 [639958560.00/s], took 0.00s
 ```
 
-## QQ mode with Dumpers
-
-Foo bar
-
 # Hardware Requirements
 
 1. A CPU with a constant and invariant TSC. All recent Intel CPUs (Nehalem or newer) have this feature.
