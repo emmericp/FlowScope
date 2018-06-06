@@ -20,7 +20,7 @@
 	xlabel=Threads,	
 	ymin=0,
 	ymax=20,
-	symbolic x coords={1, 2, 4, 6, 8, 10},
+	symbolic x coords={0, 1, 2, 4, 6, 8, 10, 12},
 	xtick=data,
 	ytick={0,10, 20, 30},
 	ylabel=Packet Rate {[}Mpps{]},
@@ -45,6 +45,8 @@
 (8, 14.17)
 (10, 13.1)
 };
+\draw[dashed, line width=0.2mm, TUMOrange] (0,14.88) -- (12,14.88);
+\draw[dashed, line width=0.2mm, TUMBlue] (0,17.6) -- (12,17.6);
 \end{axis}
 \end{tikzpicture}
 \end{document}
