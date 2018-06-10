@@ -1,0 +1,52 @@
+\documentclass[border=0pt]{standalone}
+
+\usepackage{tumcolors}
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\usetikzlibrary{plotmarks}
+
+\begin{document}
+
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\tikzset{every mark/.append style={scale=0.9}}
+\begin{tikzpicture}
+\begin{axis}[
+	footnotesize,
+	scale only axis,
+	width=7cm,
+	height=3cm,
+	xlabel=Threads,	
+	ymin=0,
+	ymax=20,
+	symbolic x coords={0, 1, 2, 4, 6, 8, 10, 12},
+	xtick=data,
+	ytick={0,10, 20, 30},
+	ylabel=Packet Rate {[}Mpps{]},
+	grid=major,
+	legend entries={XL710, X540-AT2},
+	legend style={at={(0.98,0.06)},anchor=south east, font=\footnotesize},
+	every axis legend/.append style={nodes={right}}
+]
+\addplot[mark=square*,color=TUMBlue] coordinates {
+(1, 2.30)
+(2, 4.56)
+(4, 9.09)
+(6, 13.5)
+(8, 15.37)
+(10, 17.2)
+};
+\addplot[mark=triangle*,color=TUMOrange] coordinates {
+(1, 2.40)
+(2, 4.70)
+(4, 9.36)
+(6, 13.61)
+(8, 14.17)
+(10, 13.1)
+};
+\draw[dashed, line width=0.2mm, TUMOrange] (0,14.88) -- (12,14.88);
+\draw[dashed, line width=0.2mm, TUMBlue] (0,17.6) -- (12,17.6);
+\end{axis}
+\end{tikzpicture}
+\end{document}

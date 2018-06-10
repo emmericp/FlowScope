@@ -1,0 +1,74 @@
+\documentclass[border=0pt]{standalone}
+
+\usepackage{tumcolors}
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\usetikzlibrary{plotmarks}
+
+\begin{document}
+
+\pgfplotsset{compat=newest}
+\pgfplotsset{grid style={dotted}}
+\tikzset{every mark/.append style={scale=0.9}}
+\begin{tikzpicture}
+
+\begin{axis}[
+	axis y line*=right,
+	axis x line=none,
+	ylabel={Checker time [s]},
+	footnotesize,
+	scale only axis,
+	width=7cm,
+	height=3cm,
+	grid=none,
+	ymin=0,
+	symbolic x coords={1 K, 10 K, 100 K, 1 M, 10 M},
+	xtick=data,
+	every axis legend/.append style={nodes={right}},
+	ybar,
+]
+\addplot[color=TUMOrange,fill=TUMOrange] coordinates {
+(1 K, 0.00049)
+(10 K, 0.004)
+(100 K, 0.43)
+(1 M, 0.56)
+(10 M, 6.2)
+};
+\end{axis}
+
+\begin{axis}[
+	footnotesize,
+	scale only axis,
+	width=7cm,
+	height=3cm,
+	xlabel=Flows,	
+	ymin=0,
+	ymax=20,
+	symbolic x coords={1 K, 10 K, 100 K, 1 M, 10 M},
+	xtick=data,
+	ytick={0,10, 20, 30},
+	ylabel=Packet Rate {[}Mpps{]},
+	grid=major,
+	legend entries={XL710, X540-AT2},
+	legend style={at={(0.28,0.80)},anchor=south east, font=\footnotesize},
+	every axis legend/.append style={nodes={right}}
+]
+\addplot[mark=square*,color=TUMBlue] coordinates {
+(1 K, 13.29)
+(10 K, 14.10)
+(100 K, 14.5)
+(1 M, 9.05)
+(10 M, 8.62)
+};
+%\addplot[only marks,mark=square,color=TUMBlue, error bars/.cd,y dir=both,y explicit]  coordinates {
+%(1 K, 13.29) +- (0, 0.05)
+%(10 K, 14.10) +- (0, 0.2)
+%(100 K, 14.5) +- (0, 0.34)
+%(1 M, 9.05) +- (0, 0.25)
+%(10 M, 8.62) +- (0, 0.20)
+%};
+\end{axis}
+
+\end{tikzpicture}
+\end{document}

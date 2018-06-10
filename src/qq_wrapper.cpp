@@ -44,6 +44,14 @@ namespace QQ {
 				rte_pktmbuf_free(bufs[i]);
 			}
 		}
+		enq_ptr.release();
+		// Attempt to make stray packets eligible for dequeuing after shutdown
+		// FIXME: Loop counter should depend on actual number of buckets blocked
+		for (int i = 0; i < 30; ++i) {
+			auto t = qq->enqueue();
+			t.release();
+			rte_delay_ms(10);
+		}
 	}
 }
 
@@ -80,6 +88,10 @@ extern "C" {
         return q->try_dequeue();
     }
     
+    const QQ::Ptr<bucket_size>* qq_storage_try_peek(QQ::QQ<bucket_size>* q) {
+        return q->try_peek();
+    }
+
     const QQ::Ptr<bucket_size>* qq_storage_enqueue(QQ::QQ<bucket_size>* q) {
         auto c = new QQ::Ptr<bucket_size>(std::move(q->enqueue()));
         return c;
@@ -94,16 +106,20 @@ extern "C" {
     }
     
     size_t qq_get_enqueue_counter(QQ::QQ<bucket_size>* q) {
-		return q->get_enqueue_counter();
-	}
-	
-	size_t qq_get_dequeue_counter(QQ::QQ<bucket_size>* q) {
-		return q->get_dequeue_counter();
-	}
-	
-	void qq_set_priority(QQ::QQ<bucket_size>* q, const uint8_t new_priority) {
-		return q->set_priority(new_priority);
-	}
+        return q->get_enqueue_counter();
+    }
+    
+    size_t qq_get_dequeue_counter(QQ::QQ<bucket_size>* q) {
+        return q->get_dequeue_counter();
+    }
+    
+    size_t qq_get_enqueue_overflow_counter(QQ::QQ<bucket_size>* q) {
+        return q->get_enqueue_overflow_counter();
+    }
+    
+    void qq_set_priority(QQ::QQ<bucket_size>* q, const uint8_t new_priority) {
+        return q->set_priority(new_priority);
+    }
     
     const QQ::packet_header& qq_storage_get_packet(QQ::Ptr<bucket_size>* ptr, const size_t idx) {
         return (const QQ::packet_header&) *ptr->operator[](idx);

@@ -16,7 +16,6 @@
 #include <sstream>
 #include <memory>
 
-//#include "pcap_writer.hpp"
 
 #define PP_STR2(str) #str
 #define PP_STR(str) PP_STR2(str)
@@ -24,9 +23,33 @@
        do { perror(__FILE__ ":" PP_STR(__LINE__) ":\n\t" msg); exit(EXIT_FAILURE); } while (0)
 
 
+#if __GNUC__ < 5 && !defined(__clang__)
+/* Taken from LLVM libcxx - MIT Licence */
+namespace std {
+inline void*
+align(size_t alignment, size_t size, void*& ptr, size_t& space) noexcept
+{
+    void* r = nullptr;
+    if (size <= space)
+    {
+        char* p1 = static_cast<char*>(ptr);
+        char* p2 = reinterpret_cast<char*>(reinterpret_cast<size_t>(p1 + (alignment - 1)) & -alignment);
+        size_t d = static_cast<size_t>(p2 - p1);
+        if (d <= space - size)
+        {
+            r = p2;
+            ptr = r;
+            space -= d;
+        }
+    }
+    return r;
+}
+} // namespace std
+#endif
 
 namespace QQ {
-    std::string format_bytes(uint64_t bytes, int precision = 2) {
+    template<typename T>
+    std::string format_bytes(T bytes, int precision = 2) {
         std::stringstream s;
         s << std::setprecision(precision) << std::fixed;
         if (bytes >= 1ULL << 40)
@@ -43,24 +66,8 @@ namespace QQ {
         return s.str();
     }
 
-    std::string format_bytes(double bytes, int precision = 2) {
-        std::stringstream s;
-        s << std::setprecision(precision) << std::fixed;
-        if (bytes >= 1ULL << 40)
-            s << (1. * bytes / (1ULL << 40)) << " TiB";
-        else if (bytes >= 1ULL << 30)
-            s << (1. * bytes / (1ULL << 30)) << " GiB";
-        else if (bytes >= 1ULL << 20)
-            s << (1. * bytes / (1ULL << 20)) << " MiB";
-        else if (bytes >= 1ULL << 10)
-            s << (1. * bytes / (1ULL << 10)) << " KiB";
-        else
-            s << bytes << " B";
-
-        return s.str();
-    }
-
-    std::string format_bits(double bytes, int precision = 2) {
+    template<typename T>
+    std::string format_bits(T bytes, int precision = 2) {
         std::stringstream s;
         s << std::setprecision(precision) << std::fixed;
         if (bytes >= 100000000000ULL)
@@ -77,24 +84,8 @@ namespace QQ {
         return s.str();
     }
 
-    std::string format_SI(double num, int precision = 2) {
-        std::stringstream s;
-        s << std::setprecision(precision) << std::fixed;
-        if (num >= 1000000000000ULL)
-            s << (1. * num / 1000000000000ULL) << " T";
-        else if (num >= 1000000000ULL)
-            s << (1. * num / 1000000000ULL) << " G";
-        else if (num >= 1000000ULL)
-            s << (1. * num / 1000000ULL) << " M";
-        else if (num >= 1000ULL)
-            s << (1. * num / 1000ULL) << " K";
-        else
-            s << num;
-
-        return s.str();
-    }
-
-    std::string format_SI(uint64_t num, int precision = 2) {
+    template<typename T>
+    std::string format_SI(T num, int precision = 2) {
         std::stringstream s;
         s << std::setprecision(precision) << std::fixed;
         if (num >= 1000000000000ULL)
@@ -147,12 +138,12 @@ namespace QQ {
 
 
 namespace QQ {
-	double CYCLES_PER_SECOND;
+    double CYCLES_PER_SECOND;
     constexpr size_t huge_page_size = 1024ULL * 1024 * 2; //!< 2 MiB
 
-	void init() {
-		 CYCLES_PER_SECOND = (double) rte_get_tsc_hz();
-	}
+    void init() {
+        CYCLES_PER_SECOND = (double) rte_get_tsc_hz();
+    }
 
     //! The struct used to store packets internally.
     /*!
@@ -171,12 +162,12 @@ namespace QQ {
         uint16_t len;           //!< Holds the length of the data array.
         uint8_t data[];         //!< Flexible array member. Valid since C99, not really in C++.
     };
-	
-	static_assert(sizeof(packet_header) == 16, "packet_header size mismatch");
-	static_assert(alignof(packet_header) == 8, "packet_header alignment mismatch");
-	static_assert(offsetof(packet_header, len) == 8, "bla");
-	static_assert(offsetof(packet_header, data) == 10, "bla");
 
+    static_assert(sizeof(packet_header) == 16, "packet_header size mismatch");
+    static_assert(alignof(packet_header) == 8, "packet_header alignment mismatch");
+    static_assert(offsetof(packet_header, len) == 8, "expected len field at 8th byte");
+    static_assert(offsetof(packet_header, data) == 10, "expected len field at 10th byte");
+    
     template<size_t storage_cap>
     struct Storage {
         explicit Storage(uint8_t* data) : backend(data), current(data) {
@@ -199,7 +190,6 @@ namespace QQ {
         inline bool store(const uint64_t timestamp, const uint64_t vlan, const uint16_t length,
                           const uint8_t* data) noexcept {
             // TODO: make the actual value depend on the storage cap and/or expected speed
-
             auto now = _rdtsc();
             auto diff = now - acquisition;
             if (diff > timeout * CYCLES_PER_SECOND) {
@@ -210,16 +200,13 @@ namespace QQ {
                 return false;
             }
 
-
-            // TODO: Alignment on current and/or local->data
+            // TODO: Alignment on current and/or new_pkt->data
             size_t space = storage_cap - (current - backend);
             if (!std::align(alignof(packet_header), sizeof(packet_header) + length, (void*&) current, space))
                 return false;
-
-            auto local = new(current) packet_header(timestamp, vlan, length);
-            std::memcpy(local->data, data, length);
-            refs.push_back(local);
-
+            auto new_pkt = new(current) packet_header(timestamp, vlan, length);
+            std::memcpy(new_pkt->data, data, length);
+            refs.push_back(new_pkt);
             current += sizeof(packet_header) + length;
             return true;
         }
@@ -230,8 +217,8 @@ namespace QQ {
 
         // TODO: test if works
         inline void pop_back() noexcept {
-            refs.pop_back();
             current = (uint8_t*) refs.back();
+            refs.pop_back();
         }
 
         inline void clear() noexcept {
@@ -250,22 +237,6 @@ namespace QQ {
         inline size_t size() const noexcept {
             return refs.size();
         }
-
-        /*
-        uint8_t* dump(uint8_t* memory) const noexcept {
-            for (const auto& item : refs) {
-                reinterpret_cast<pcap_packet_header*>(memory)->ts_sec = (uint32_t) item->timestamp; // FIXME: find correct conversion
-                reinterpret_cast<pcap_packet_header*>(memory)->ts_usec = 0;
-                reinterpret_cast<pcap_packet_header*>(memory)->incl_len = item->len;
-                reinterpret_cast<pcap_packet_header*>(memory)->orig_len = item->len;
-                memory += sizeof(pcap_packet_header);
-
-                memcpy(memory, item->data, item->len);
-                memory += item->len;
-            }
-            return memory;
-        }
-        */
 
 
         template<size_t storage_size = 8, uint16_t packet_len = 64, bool verbose = true>
@@ -424,26 +395,25 @@ namespace QQ {
             }
 
             std::cout << "Timeout test passed" << std::endl;
-            delete bytes;
-            delete packet_data;
+            delete[] bytes;
+            delete[] packet_data;
         }
 
     public:
         std::mutex m_;
+        uint64_t acquisition = 0;
+    private:
         const uint8_t* backend;
         uint8_t* current;
-		// TODO: can be optimized to store offsets instead of pointers, saving 4 byte/packet
-		// (a variant without random access could save even more memory)
+        // TODO: can be optimized to store offsets instead of pointers, saving 4 byte/packet
+        // (a variant without random access could save even more memory)
         std::vector<packet_header*> refs;
-        uint64_t acquisition = 0;
         constexpr static double timeout = 0.3;  // time in seconds
     };
 
     template<size_t num_pages>
     struct Ptr {
-        Ptr() {
-			//std::cout << "Ptr empty ctor" << std::endl;
-        }
+        Ptr() { }
         
         Ptr(Storage<num_pages * huge_page_size>& s) : storage(&s) {
             lock_ = std::unique_lock<std::mutex>(storage->m_);
@@ -452,29 +422,22 @@ namespace QQ {
         
         Ptr(const Ptr& other) = delete;
 
-        Ptr(Ptr&& other) : storage(other.storage), lock_(std::move(other.lock_)) {
-            //std::cout << "Ptr move ctor'd, this owns_lock: " << this->lock_.owns_lock() << ", other owns_lock: " << other.lock_.owns_lock() << std::endl;
-        }
+        Ptr(Ptr&& other) : storage(other.storage), lock_(std::move(other.lock_)) { }
 
         Ptr& operator=(Ptr&& other) {
-            //std::cout << "Ptr move assign, this owns_lock: " << this->lock_.owns_lock() << ", other owns_lock: " << other.lock_.owns_lock() << std::endl;
             storage = other.storage;
-            //lock_.swap(other.lock_);
             lock_ = std::move(other.lock_);
-            //std::cout << "this owns_lock: " << this->lock_.owns_lock() << ", other owns_lock: " << other.lock_.owns_lock() << std::endl;
             return *this;
         }
 
         ~Ptr() {
-            //std::cout << "Ptr dtor'd, lock: " << !!lock_ << std::endl;
             release();
         }
         
         inline void release() noexcept {
-			//std::cout << "ptr release()" << std::endl;
-			if (lock_)
+            if (lock_)
                 lock_.unlock();
-		}
+        }
 
         template<typename ...Args>
         inline bool store(Args&& ...args) {
@@ -505,19 +468,15 @@ namespace QQ {
             return storage->cend();
         }
 
-        inline uint8_t* dump(uint8_t* memory) const noexcept {
-            return storage->dump(memory);
-        }
-
     private:
-        Storage<num_pages * huge_page_size>* storage;
-        std::unique_lock<std::mutex> lock_;
+        Storage<num_pages * huge_page_size>* storage;  //!< Handle of the managed storage element
+        std::unique_lock<std::mutex> lock_;            //!< To lock the QQ::Storage::m_ mutex
     };
 
     template<size_t pages_per_bucket>
     class QQ {
 
-	public:
+    public:
         QQ(size_t num_buckets): num_buckets(num_buckets) {
             if ((backend_ = (uint8_t*) mmap(NULL, pages_per_bucket * num_buckets * huge_page_size,
                                             PROT_READ | PROT_WRITE,
@@ -539,18 +498,18 @@ namespace QQ {
 
         QQ(const QQ&) = delete;
 
-        QQ(const QQ&&) = delete;
+        QQ(QQ&&) = delete;
 
         ~QQ() {
             if (munmap(backend_, pages_per_bucket * num_buckets * huge_page_size))
                 handle_error("munmap");
             for (auto& e : storage_in_use)
-                delete (e);
+                delete e;
         }
 
         QQ& operator=(const QQ&) = delete;
 
-        QQ& operator=(const QQ&&) = delete;
+        QQ& operator=(QQ&&) = delete;
 
         Ptr<pages_per_bucket> waiting_enqueue(const uint8_t call_priority = 1) {
             Storage<pages_per_bucket * huge_page_size>* s = nullptr;
@@ -609,34 +568,22 @@ namespace QQ {
 
 
         Ptr<pages_per_bucket> enqueue(const uint8_t call_priority = 1) {
-			//std::cout << "c++ enqueue: entry" << std::endl;
             Storage<pages_per_bucket * huge_page_size>* s = nullptr;
             std::unique_lock<std::mutex> lk(mutex_);
-			//std::cout << "c++ enqueue: got qq lock, head: " << head << ", tail: " << tail  << std::endl;
-            //if (full_no_lock())
-            //    cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); }); // wait until true/while false
-			not_full.wait(lk, [&] { return check_priority_no_lock(call_priority) || !full_no_lock(); }); // UNTESTED
-			//std::cout << "c++ enqueue: not_full passed" << std::endl;
+            not_full.wait(lk, [&] { return check_priority_no_lock(call_priority) || !full_no_lock(); });
             s = storage_in_use.at(head);
             head = wrap(head + 1);
             ++enqueue_call_counter;
             if (head == tail) {
-				tail = wrap(tail + 16);
+                tail = wrap(tail + 16);
                 ++enqueue_overflow_counter;
 #ifndef NDEBUG
                 std::cerr << "[QQ] Enqueue overflow occurred, dropping last 16 buckets!" << std::endl;
 #endif
             }
-            //std::cout << "c++ enqueue: counter done, head: " << head << ", tail: " << tail  << std::endl;
-            // 1.
-            Ptr<pages_per_bucket> p{*s};
-			//std::cout << "c++ enqueue: got storage lock" << std::endl;
-            //
+            Ptr<pages_per_bucket> p{*s};  // The ctor locks the Storage mutex, potentially blocking if another Ptr hold still holds it
             lk.unlock();
-			//std::cout << "c++ enqueue: unlocked qq lock" << std::endl;
             non_empty.notify_one();
-            // 2.
-            //
             p.clear();
             return std::move(p);
         }
@@ -644,9 +591,12 @@ namespace QQ {
         Ptr<pages_per_bucket>* try_dequeue(const uint8_t call_priority = 1) {
             Storage<pages_per_bucket * huge_page_size>* s = nullptr;
             std::unique_lock<std::mutex> lk(mutex_);
-            if (!non_empty.wait_for(lk, std::chrono::milliseconds(10), [&] { return distance(tail, head) > 8; }))
-				return nullptr;
-			s = storage_in_use.at(tail);
+            if (!non_empty.wait_for(lk, std::chrono::milliseconds(10), [&] {
+                return distance(head, tail) < 8 // Wait until head is less than 8 buckets behind tail
+                && distance(tail, head) > 8;    // Wait until tail is more than 8 buckets behind head
+            }))
+                return nullptr;
+            s = storage_in_use.at(tail);
             tail = wrap(tail + 1);
             ++dequeue_call_counter;
             Ptr<pages_per_bucket> p{*s};
@@ -656,60 +606,57 @@ namespace QQ {
         }
 
         Ptr<pages_per_bucket> dequeue(const uint8_t call_priority = 1) {
-			//usleep(100);
-			//while (distance(tail, head) < 1) continue;
-			//std::cout << "c++ dequeue: entry" << std::endl;
             Storage<pages_per_bucket * huge_page_size>* s = nullptr;
             std::unique_lock<std::mutex> lk(mutex_);
-			//std::cout << "c++ dequeue: got qq lock, head: " << head << ", tail: " << tail << std::endl;
-            //cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); });
-            non_empty.wait(lk, [&] { return distance(tail, head) > 8; });
-			//non_empty.wait(lk, [&] { return !empty_no_lock(); });
-			//if (empty_no_lock()) {
-			//	std::cerr << "empty" << std::endl;
-			//	std::exit(3);
-			//}
-			//std::cout << "c++ dequeue: empty passed" << std::endl;
-			s = storage_in_use.at(tail);
+            //non_empty.wait(lk, [&] { return distance(tail, head) > 8; }); //This waits as short as possible
+            non_empty.wait(lk, [&] {
+                return distance(head, tail) < 8 // Wait until head is less than 8 buckets behind tail
+                && distance(tail, head) > 8;    // Wait until tail is more than 8 buckets behind head
+            }); // This waits until QQ is full
+            s = storage_in_use.at(tail);
             tail = wrap(tail + 1);
             ++dequeue_call_counter;
-			//std::cout << "c++ dequeue: counter done" << std::endl;
-            // #1
             Ptr<pages_per_bucket> p{*s};
-			//std::cout << "c++ dequeue: got storage lock" << std::endl;
-            //
             lk.unlock();
-			//std::cout << "c++ dequeue: unlocked qq lock" << std::endl;
             not_full.notify_one();
-            // #2
-            //
             return p;
         }
 
-		Ptr<pages_per_bucket> peek(const uint8_t call_priority = 1) {
-            //usleep(100);
-			//while (distance(peek_pos, head) < 2)
-			//	continue;
-			//std::cerr << distance(peek_pos, head) << ": head: " << head << ", peek: " << peek_pos << std::endl;
-			
-			//std::cout << "c++ peek: entry" << std::endl;
-			Storage<pages_per_bucket * huge_page_size>* s = nullptr;
-			std::unique_lock<std::mutex> lk(mutex_);
-			//std::cout << "c++ peek: got qq lock, head: " << head << ", tail: " << tail << ", peek: " << peek_pos << " (" << distance(head, peek_pos) << " behind)" << std::endl;
+        Ptr<pages_per_bucket> peek(const uint8_t call_priority = 1) {
+            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
+            std::unique_lock<std::mutex> lk(mutex_);
+            if (distance(peek_pos, head) > num_buckets / 2) {
+                peek_pos = wrap(peek_pos + 16);
 #ifndef NDEBUG
-			if (distance(peek_pos, head) > num_buckets / 2)
-				std::cerr << "[QQ::peek()]: peek pointer is lacking more than 50% behind head!" << std::endl;
+                std::cerr << "[QQ::peek()]: peek pointer is lacking more than 50% behind head!" << std::endl;
 #endif
-			cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); });
-			
-			//non_empty.wait(lk, [&] { return peek_pos != head; });  // SLOW BECAUSE OF STALLS
-			non_empty.wait(lk, [&] { return distance(peek_pos, head) > 8; });
-			//std::cerr << distance(peek_pos, head) << ": head: " << head << ", peek: " << peek_pos << std::endl;
-			s = storage_in_use.at(peek_pos);
-			peek_pos = wrap(peek_pos + 1);
+            }
+            //cv_prio.wait(lk, [&] { return check_priority_no_lock(call_priority); });
+            non_empty.wait(lk, [&] { return distance(peek_pos, head) > 8; });
+            s = storage_in_use.at(peek_pos);
+            peek_pos = wrap(peek_pos + 1);
             Ptr<pages_per_bucket> p{*s};
-			lk.unlock();
-			return p;
+            lk.unlock();
+            non_empty.notify_one();
+            return p;
+        }
+
+        Ptr<pages_per_bucket>* try_peek(const uint8_t call_priority = 1) {
+            Storage<pages_per_bucket * huge_page_size>* s = nullptr;
+            std::unique_lock<std::mutex> lk(mutex_);
+            if (distance(peek_pos, head) > num_buckets / 2) {
+                peek_pos = wrap(peek_pos + 16);
+            }
+            if (!non_empty.wait_for(lk, std::chrono::milliseconds(10), [&] {
+                return distance(peek_pos, head) > 8; // Wait until peek_pos is more than 8 buckets behind head
+            }))
+                return nullptr;
+            s = storage_in_use.at(peek_pos);
+            peek_pos = wrap(peek_pos + 1);
+            auto p = new Ptr<pages_per_bucket>(*s);
+            lk.unlock();
+            non_empty.notify_one();
+            return p;
         }
 
         inline bool empty() {
@@ -732,7 +679,7 @@ namespace QQ {
         inline void set_priority(const uint8_t new_priority) noexcept {
             std::unique_lock<std::mutex> lk(mutex_);
             priority = new_priority;
-            lk.unlock(); // unlock early to prevent instant re-block in other thread.
+            lk.unlock(); // unlock early to prevent instant re-blocking in other thread.
             cv_prio.notify_all();
         }
 
@@ -748,8 +695,8 @@ namespace QQ {
         }
         
         inline size_t capacity() const noexcept {
-			return num_buckets;
-		}
+            return num_buckets;
+        }
         
         inline size_t distance(const size_t a, const size_t b) const noexcept {
             if (b >= a)
@@ -764,16 +711,18 @@ namespace QQ {
             else
                 return value;
         }
-        
-        
+                
         inline size_t get_enqueue_counter() const noexcept {
-			return enqueue_call_counter;
-		}
-		
-		inline size_t get_dequeue_counter() const noexcept {
-			return dequeue_call_counter;
-		}
-		
+            return enqueue_call_counter;
+        }
+        
+        inline size_t get_enqueue_overflow_counter() const noexcept {
+            return enqueue_overflow_counter;
+        }
+        
+        inline size_t get_dequeue_counter() const noexcept {
+            return dequeue_call_counter;
+        }
 
         void print_storages() const noexcept {
             std::cout << "Storages: ";
@@ -926,7 +875,7 @@ namespace QQ {
         size_t tail;
         size_t peek_pos;
         uint8_t priority; //!< stores the current priority level of the queue.
-		const size_t num_buckets;
+        const size_t num_buckets;
         std::mutex mutex_;
         std::vector<Storage<pages_per_bucket * huge_page_size>*> storage_in_use;
 
@@ -1138,25 +1087,4 @@ namespace QQ {
         std::cout << "Map size: " << map_size << ", " << format_SI(map_size) << std::endl;
         std::cout << "All packets there" << std::endl;
     }
-
-    /*
-    static void dump_test(const std::string path = "./") {
-        QQ<1> qq(16);
-
-        {
-            uint64_t c = 0;
-            auto enq_ptr = qq.enqueue();
-            while (enq_ptr.store(c, 1, sizeof(c) + 10, (uint8_t*) &c))
-                ++c;
-        }
-
-        pcap_writer pw(path);
-        {
-            auto deq_ptr = qq.dequeue();
-            for (auto it = deq_ptr.cbegin(); it != deq_ptr.cend(); ++it) {
-                pw.store((*it)->timestamp, (*it)->len, (*it)->data);
-            }
-        }
-    }
-    */
 } // namespace QQ
