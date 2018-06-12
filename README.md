@@ -1,6 +1,10 @@
 FlowScope is an oscilloscope for your network traffic. It records all traffic continuously in a ring buffer and dumps specific flows to disk on trigger events.
 Triggers can be packets matching a user-defined filter.
 
+[Read our new and updated paper](https://www.net.in.tum.de/fileadmin/bibtex/publications/papers/FlowScope-flow-tracking.pdf) (2018, venue TBD) about FlowScope to learn more about FlowScope's architecture and flow tracking capabilities.
+
+Our [older publication](https://www.net.in.tum.de/fileadmin/bibtex/publications/papers/FlowScope.pdf) (IFIP Networking 2017, [bib](https://www.net.in.tum.de/publications/bibtex/FlowScope17.bib)) focuses on our QQ data structure used for time-traveling network debugging.
+
 
 # Architecture
 
